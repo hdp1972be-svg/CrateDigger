@@ -697,6 +697,11 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
         if paused and process.poll() is None:
             process.send_signal(signal.SIGCONT)
         if terminal_fd is not None and terminal_settings is not None:
+            # A 'p' typed during the recognition/interval/delay phase must
+            # not leak into the shell when canonical terminal mode is
+            # restored. Clear any pending terminal input before handing the
+            # tty back to the shell.
+            termios.tcflush(terminal_fd, termios.TCIFLUSH)
             termios.tcsetattr(
                 terminal_fd,
                 termios.TCSADRAIN,
