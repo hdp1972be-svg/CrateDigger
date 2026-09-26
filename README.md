@@ -39,6 +39,7 @@ Online-source support is provided by **yt-dlp**, so the exact URLs that work dep
 - ⚙️ Named profiles with profile-specific settings and hook overrides
 - 📋 Inspect available profiles with `--list-profiles`
 - 🐛 Debug live captures with `--debug`, keeping temporary WAV fragments in `/tmp`
+- 🎧 Keep unmatched audio fragments in `/tmp` with a `file://` link and expose the path to `nomatch` hooks
 - 🔌 Automatically rebuild the PulseAudio/Bluetooth loopback after audio-device reconnects
 
 ## Requirements
@@ -376,6 +377,8 @@ All hooks receive the common environment variables where applicable:
 - `$SHAZAM_SOURCE_TYPE`
 - `$SHAZAM_ERROR` — error text for `error`
 - `$SHAZAM_EXIT_CODE` — relevant exit code for `nomatch`/`error`
+- `$SHAZAM_AUDIO_FILE` — saved WAV path for an unmatched fragment
+- `$SHAZAM_AUDIO_URL` — the same path as a `file://` URL
 
 The command may use placeholders such as `%artist`, `%record`, `%confidence`, `%source`, `%sourcetype`, `%error`, and `%exitcode`; they are expanded through the corresponding environment variables.
 
@@ -545,13 +548,23 @@ The JSON output from CrateDigger reports the recognition status and preserves th
 
 The `track` object contains the full Shazam response rather than only the fields shown in this abbreviated example.
 
-When Shazam responds successfully but does not identify the fragment:
+When Shazam responds successfully but does not identify the fragment, CrateDigger keeps the captured fragment as a WAV file in `/tmp` instead of deleting it. Human-readable output includes a `file://` link, and the `nomatch` hook receives `$SHAZAM_AUDIO_FILE` and `$SHAZAM_AUDIO_URL`:
+
+```text
+❌ Geen herkenning.
+🎧 Fragment bewaard: file:///tmp/cratedigger-nomatch-abc123.wav
+```
+
+JSON output includes the saved path too:
 
 ```json
 {
-  "status": "no_match"
+  "status": "no_match",
+  "audio_file": "/tmp/cratedigger-nomatch-abc123.wav"
 }
 ```
+
+A saved unmatched fragment is deliberately separate from `--keep-temp`: only no-match fragments are retained automatically, while normal recognized fragments continue to be cleaned up.
 
 The process exit status is also useful in scripts:
 
