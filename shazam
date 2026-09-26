@@ -750,19 +750,19 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
                     fragment_pad=fragment_pad,
                 )
 
-        except RuntimeError as fout:
-            print(f"❌ {fout}", file=sys.stderr)
-            return 2
+            except RuntimeError as fout:
+                print(f"❌ {fout}", file=sys.stderr)
+                return 2
 
-        finally:
-            if (
-                fragment_pad
-                and os.path.exists(fragment_pad)
-                and not keep_temp
-            ):
-                os.remove(fragment_pad)
-            elif fragment_pad and keep_temp:
-                print(f"Fragment bewaard: {fragment_pad}")
+            finally:
+                if (
+                    fragment_pad
+                    and os.path.exists(fragment_pad)
+                    and not keep_temp
+                ):
+                    os.remove(fragment_pad)
+                elif fragment_pad and keep_temp:
+                    print(f"Fragment bewaard: {fragment_pad}")
 
             if not loop:
                 return code
