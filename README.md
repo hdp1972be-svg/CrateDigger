@@ -18,11 +18,12 @@ I built this because I couldn't find another small CLI tool that combines this p
 - 🧹 Temporary downloaded audio is cleaned up automatically
 - 🎙️ Listen to live audio through ALSA, PulseAudio, or JACK
 - 🔁 Optionally repeat live recognition with a configurable interval
+- ⏳ Add an additional delay after a successful recognition
 
 ## Requirements
 
 - Python 3
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp) in `$PATH` for YouTube URLs
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) in `$PATH` for online URLs
 - FFmpeg
 - Python packages:
   - `aiohttp`
@@ -52,7 +53,7 @@ It allows the project to work with different audio/video containers and codecs a
 For example, if you give the program a 90-minute video and ask for:
 
 ```bash
-./shazam.py video.mp4 -t 42:17 -d 15
+./shazam video.mp4 -t 42:17 -d 15
 ```
 
 the interesting part is the **15-second audio fragment around 42:17**, not the entire video.
@@ -146,7 +147,7 @@ sudo apt install ffmpeg
 
 Then install the Python packages:
 
-```python
+```bash
 python3 -m pip install aiohttp pydub shazamio
 ```
 
@@ -179,7 +180,7 @@ The default is to analyze a **25-second** fragment.
 ### Start at a timestamp
 
 ```bash
-./shazam.py 'https://www.youtube.com/watch?v=VIDEO_ID' -t 10:00
+./shazam 'https://www.youtube.com/watch?v=VIDEO_ID' -t 10:00
 ```
 
 The `--time` option accepts:
@@ -193,7 +194,7 @@ If the URL contains a YouTube `t=` parameter, that timestamp is used automatical
 ### Change the analysis duration
 
 ```bash
-./shazam.py 'https://www.youtube.com/watch?v=VIDEO_ID' -t 10:00 -d 30
+./shazam 'https://www.youtube.com/watch?v=VIDEO_ID' -t 10:00 -d 30
 ```
 
 This analyzes 30 seconds starting at 10:00.
@@ -203,7 +204,7 @@ This analyzes 30 seconds starting at 10:00.
 The same tool can work on a local audio/video file:
 
 ```bash
-./shazam.py recording.mp3
+./shazam recording.mp3
 ```
 
 The media file is not downloaded; the selected fragment is extracted locally.
@@ -254,6 +255,38 @@ Shazam
 ...
 ```
 
+The interval is applied between live capture cycles, regardless of whether the previous capture produced a match.
+
+#### Delay after a successful match
+
+`--delay` adds an additional wait **after a song has been successfully recognized**. This is separate from `--interval`.
+
+For example:
+
+```bash
+./shazam --live --input pulse --loop -d 25 --interval 5 --delay 10
+```
+
+results in:
+
+```text
+capture 25s
+    ↓
+Shazam
+    ↓
+song found
+    ↓
+wait 10s   ← --delay
+    ↓
+wait 5s    ← --interval
+    ↓
+capture 25s
+    ↓
+...
+```
+
+This is useful when repeatedly recognizing a continuous audio source and you want some extra time after a successful match before starting the next cycle.
+
 The input source can be selected explicitly with `--device`. The exact name depends on the backend:
 
 ```bash
@@ -269,7 +302,7 @@ Press `Ctrl-C` to stop a looping session.
 For scripts and other automation:
 
 ```bash
-./shazam.py 'https://www.youtube.com/watch?v=VIDEO_ID' --json
+./shazam 'https://www.youtube.com/watch?v=VIDEO_ID' --json
 ```
 
 Successful recognition returns:
@@ -288,24 +321,26 @@ With no match, JSON output is:
 
 ```
 usage: shazam [-h] [-t TIME] [-d DURATION] [--json] [--keep-temp]
-              [--live] [--interval INTERVAL] [--device DEVICE] [--loop]
+              [--live] [--input {alsa,pulse,jack}] [--interval INTERVAL]
+              [--delay DELAY] [--device DEVICE] [--loop]
               [MEDIAFILE_OR_YOUTUBE_URL]
 
 positional arguments:
   MEDIAFILE_OR_YOUTUBE_URL
-                        Local media file or YouTube URL
+                        Local media file or online URL
 
 options:
   -h, --help            Show this help message and exit
   -t, --time TIME       Start time for recognition
   -d, --duration SECONDS
-                        Number of seconds to analyze (default: 15)
+                        Number of seconds to analyze (default: 25)
   --json                Output recognition result as JSON
   --keep-temp           Keep the temporary downloaded audio
   --live                Listen to live audio
   --input {alsa,pulse,jack}
                         Live audio backend (default: alsa)
   --interval SECONDS    Wait between live captures (default: 5)
+  --delay SECONDS       Wait after a found song (default: 0)
   --device DEVICE       Input source (default: default)
   --loop                Repeat live captures until interrupted
 ```
@@ -335,6 +370,30 @@ Default:
 ```
 
 Longer fragments can be useful when the music is quiet or the selected point contains speech/noise.
+
+For live mode, the same option controls the length of each recording.
+
+### `--interval`
+
+In live loop mode, controls the wait between capture cycles.
+
+For example:
+
+```bash
+./shazam --live --loop --interval 5
+```
+
+### `--delay`
+
+In live loop mode, adds an additional wait after a successful song recognition.
+
+For example:
+
+```bash
+./shazam --live --loop --interval 5 --delay 10
+```
+
+The two delays are independent: `--delay` happens after a successful match, while `--interval` is the normal pause between live capture cycles.
 
 ### `--json`
 
@@ -378,6 +437,32 @@ ShazamIO
 title + artist
 ```
 
+For live mode:
+
+```
+ALSA / PulseAudio / JACK
+          │
+          ▼
+       FFmpeg
+          │
+          ▼
+    16 kHz mono WAV
+          │
+          ▼
+       ShazamIO
+          │
+          ▼
+     title + artist
+          │
+          ├── --delay
+          │
+          ▼
+     --interval
+          │
+          ▼
+    next capture
+```
+
 The important part is that you don't have to manually download the video, cut out a fragment, open a music-recognition service, and feed it the audio. The whole operation is one command.
 
 ## Why?
@@ -387,7 +472,7 @@ Ever found a track in a long YouTube DJ mix, but don't know what it is?
 Instead of playing the mix and holding your phone up to Shazam:
 
 ```bash
-youtube-shazam 'https://www.youtube.com/watch?v=VIDEO_ID' -t 47:23
+./shazam 'https://www.youtube.com/watch?v=VIDEO_ID' -t 47:23
 ```
 
 That's it.
