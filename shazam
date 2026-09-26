@@ -6,8 +6,12 @@ import json
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
+import select
+import termios
+import tty
 import tempfile
 import time
 import wave
@@ -505,6 +509,18 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
     )
 
     any_signal = False
+    terminal_fd = None
+    terminal_settings = None
+    paused = False
+
+    # In een interactieve terminal kan 'p' de FFmpeg-opname pauzeren/hervatten.
+    # cbreak laat de toets direct binnenkomen zonder Enter, terwijl Ctrl-C
+    # gewoon als SIGINT blijft werken.
+    if sys.stdin.isatty() and os.name == "posix":
+        terminal_fd = sys.stdin.fileno()
+        terminal_settings = termios.tcgetattr(terminal_fd)
+        tty.setcbreak(terminal_fd)
+        print("Druk 'p' om te pauzeren/hervatten.")
 
     try:
         with wave.open(tmp_pad, "wb") as wav:
@@ -520,29 +536,50 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
             vorige_sec = 0
 
             while True:
-                data = process.stdout.read(4096)
-                if not data:
-                    break
-
-                if not any_signal and any(data):
-                    any_signal = True
-
-                wav.writeframes(data)
-                verwerkte_bytes += len(data)
-
-                huidige_sec = min(
-                    duur_sec,
-                    verwerkte_bytes / (sample_rate * channels * sample_width),
+                leesbare, _, _ = select.select(
+                    [process.stdout, sys.stdin] if terminal_fd is not None else [process.stdout],
+                    [],
+                    [],
+                    0.1,
                 )
-                huidige_sec_int = int(huidige_sec)
 
-                if huidige_sec_int > vorige_sec:
-                    vorige_sec = huidige_sec_int
-                    print(
-                        f"\rRecording sec {vorige_sec}/{duur_sec}",
-                        end="",
-                        flush=True,
+                if terminal_fd is not None and sys.stdin in leesbare:
+                    toets = os.read(terminal_fd, 1)
+
+                    if toets.lower() == b"p":
+                        if paused:
+                            process.send_signal(signal.SIGCONT)
+                            paused = False
+                            print("\n▶ Continued")
+                        else:
+                            process.send_signal(signal.SIGSTOP)
+                            paused = True
+                            print("\n⏸ Paused — press 'p' to continue")
+
+                if process.stdout in leesbare and not paused:
+                    data = process.stdout.read(4096)
+                    if not data:
+                        break
+
+                    if not any_signal and any(data):
+                        any_signal = True
+
+                    wav.writeframes(data)
+                    verwerkte_bytes += len(data)
+
+                    huidige_sec = min(
+                        duur_sec,
+                        verwerkte_bytes / (sample_rate * channels * sample_width),
                     )
+                    huidige_sec_int = int(huidige_sec)
+
+                    if huidige_sec_int > vorige_sec:
+                        vorige_sec = huidige_sec_int
+                        print(
+                            f"\rRecording sec {vorige_sec}/{duur_sec}",
+                            end="",
+                            flush=True,
+                        )
 
             print()
 
@@ -556,13 +593,24 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
             )
 
     except (OSError, wave.Error) as e:
-        process.kill()
-        process.wait()
+        if process.poll() is None:
+            process.kill()
+            process.wait()
         if os.path.exists(tmp_pad):
             os.remove(tmp_pad)
         raise RuntimeError(
             f"{invoer} audio kon niet worden opgenomen van '{apparaat}'."
         ) from e
+
+    finally:
+        if paused and process.poll() is None:
+            process.send_signal(signal.SIGCONT)
+        if terminal_fd is not None and terminal_settings is not None:
+            termios.tcsetattr(
+                terminal_fd,
+                termios.TCSADRAIN,
+                terminal_settings,
+            )
 
     return tmp_pad, not any_signal
 
