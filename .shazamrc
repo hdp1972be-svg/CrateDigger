@@ -1,0 +1,60 @@
+# CrateDigger configuration
+#
+# Global hooks can be overridden per profile.
+# No machine-specific paths or secrets are stored here.
+
+[HOOKS]
+
+# Add every newly recognised track to the Taskwarrior music queue.
+afterfound = shell exec task add "%artist %record %id %date" +MUSIC
+
+# Useful in watch/live mode.
+nomatch = shell exec printf '[CrateDigger] no match: %s\n' "$SHAZAM_SOURCE"
+
+# Log recognition/network errors.
+error = shell exec printf '[CrateDigger] error %s: %s\n' "$SHAZAM_EXIT_CODE" "$SHAZAM_ERROR" >&2
+
+
+[PROFILE default]
+
+duration = 25
+interval = 5
+delay = 0
+input = alsa
+device = default
+loop = false
+json = false
+keep_temp = false
+live = false
+recursive = false
+
+
+[PROFILE crate]
+
+# Recursive local crate-digging.
+duration = 25
+recursive = true
+json = false
+
+
+[PROFILE radio]
+
+# PulseAudio system-output capture.
+live = true
+input = pulse
+device = shazam_sink.monitor
+duration = 20
+interval = 10
+delay = 5
+loop = true
+
+# Radio misses are expected; don't print anything.
+nomatch = shell exec true
+
+
+[PROFILE json]
+
+# Simple machine-oriented output hook.
+json = true
+duration = 25
+afterfound = shell exec printf '%s\t%s\t%s\t%s\n' "$SHAZAM_ARTIST" "$SHAZAM_RECORD" "$SHAZAM_ID" "$SHAZAM_CONFIDENCE"
