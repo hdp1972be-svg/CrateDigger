@@ -1,0 +1,598 @@
+#!/usr/bin/env python3
+
+import argparse
+import asyncio
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+from urllib.parse import parse_qs, urlsplit
+
+import aiohttp
+import socket
+import asyncio
+
+from pydub import AudioSegment
+from shazamio import Shazam
+
+
+def zet_tijd_om_naar_ms(tijd_str):
+    # @anchor: tijd:parse-mm-ss
+    """
+    Ondersteunt:
+
+        65          -> 65 seconden
+        10:03       -> 10 minuten 3 seconden
+        1:10:03     -> 1 uur 10 minuten 3 seconden
+    """
+
+    tijd_str = str(tijd_str).strip()
+
+    if tijd_str == "":
+        return 0
+
+    # Allleen cijfers -> seconden
+    if ":" not in tijd_str:
+        try:
+            seconden = int(tijd_str)
+        except ValueError:
+            raise ValueError(
+                "Ongeldige tijd. Gebruik seconden, MM:SS of UU:MM:SS."
+            )
+
+        # Een negatieve starttijd kan niet: ffmpeg en de pydub-slice zouden
+        # het stilzwijgend anders dan bedoeld behandelen.
+        if seconden < 0:
+            raise ValueError(
+                "Ongeldige tijd. Gebruik seconden, MM:SS of UU:MM:SS."
+            )
+
+        return seconden * 1000
+
+    try:
+        delen = [int(x) for x in tijd_str.split(":")]
+    except ValueError:
+        raise ValueError(
+            "Ongeldige tijd. Gebruik seconden, MM:SS of UU:MM:SS."
+        )
+
+    if len(delen) == 2:
+        uren = 0
+        minuten, seconden = delen
+
+    elif len(delen) == 3:
+        uren, minuten, seconden = delen
+
+    else:
+        raise ValueError(
+            "Gebruik seconden, MM:SS of UU:MM:SS."
+        )
+
+    # MM:SS en UU:MM:SS zijn geen vrije som: de kleine componenten moeten binnen
+    # hun eigen eenheid blijven, anders zou "1:75" stilletjes 2:15 betekenen.
+    if not (0 <= seconden < 60 and 0 <= minuten < 60 and uren >= 0):
+        raise ValueError(
+            "Ongeldige tijd. Gebruik seconden, MM:SS of UU:MM:SS."
+        )
+
+    return (
+        uren * 3600 +
+        minuten * 60 +
+        seconden
+    ) * 1000
+
+
+YOUTUBE_HOSTS = (
+    "youtube.com",
+    "youtu.be",
+    "youtube-nocookie.com",
+)
+
+
+def is_youtube_url(bron):
+    """
+    True als de string een YouTube-url is (incl. m./music. subdomeinen).
+    """
+    if "://" not in bron:
+        return False
+
+    host = (urlsplit(bron).hostname or "").lower()
+
+    return any(
+        host == domein or host.endswith("." + domein)
+        for domein in YOUTUBE_HOSTS
+    )
+
+
+def parse_youtube_tijd(waarde):
+    """
+    Zet een YouTube-tijdparameter om naar ms. Ondersteunt:
+
+        90 / 90s / 1m30s / 1h2m3s / 1:30 / 1:02:03
+
+    Geeft None terug als de waarde onleesbaar is.
+    """
+    waarde = str(waarde).strip()
+
+    if waarde == "":
+        return None
+
+    # MM:SS en UU:MM:SS hebben we al in zet_tijd_om_naar_ms
+    if ":" in waarde:
+        try:
+            return zet_tijd_om_naar_ms(waarde)
+        except ValueError:
+            return None
+
+    # 90, 90s, 1m30s, 1h2m3s -> mag niets anders dan cijfers/eenheden
+    # bevatten, anders zou "12abc" stilzwijgend als 12 seconden tellen.
+    onderdelen = re.findall(r"(\d+)([hms]?)", waarde)
+
+    if not onderdelen:
+        return None
+
+    if "".join(getal + eenheid for getal, eenheid in onderdelen) != waarde:
+        return None
+
+    seconden = 0
+
+    for getal, eenheid in onderdelen:
+        if eenheid == "h":
+            seconden += int(getal) * 3600
+        elif eenheid == "m":
+            seconden += int(getal) * 60
+        else:
+            seconden += int(getal)
+
+    return seconden * 1000
+
+
+# @anchor: url:tijd-parameter
+def haal_tijd_uit_url(url):
+    """
+    Haal de starttijd (ms) uit een YouTube-url. Ondersteunt de ?t=, ?start=
+    en ?time_continue= parameters, de #t= fragmenten en een kale tijd in de
+    fragmenten. Geeft 0 terug als de url geen tijd bevat en gooit ValueError
+    als er wel een tijd staat die we niet kunnen lezen.
+    """
+    if "://" not in url:
+        url = "https://" + url
+
+    gesplitst = urlsplit(url)
+    kandidaten = []
+
+    query = parse_qs(gesplitst.query)
+
+    for sleutel in ("t", "start", "time_continue"):
+        kandidaten.extend(query.get(sleutel, []))
+
+    if gesplitst.fragment:
+        for stuk in gesplitst.fragment.split("&"):
+            if stuk.startswith(("t=", "start=")):
+                kandidaten.append(stuk.split("=", 1)[1])
+            elif re.fullmatch(r"[\d:hms]+", stuk):
+                kandidaten.append(stuk)
+
+    if not kandidaten:
+        return 0
+
+    for kandidaat in kandidaten:
+        milliseconden = parse_youtube_tijd(kandidaat)
+
+        if milliseconden is not None:
+            return milliseconden
+
+    # Er staat een tijd in de url die we niet kunnen lezen: niet stilzwijgend
+    # vanaf 0 beginnen, want dan herkennen we het verkeerde deel van de video.
+    raise ValueError(
+        "Ongeldige tijd in de url: " + ", ".join(kandidaten)
+    )
+
+
+def haal_duur_ms(pad):
+    """
+    Duur van een mediafile in ms via ffprobe. None als onbekend.
+    """
+    try:
+        uitvoer = subprocess.run(
+            [
+                "ffprobe",
+                "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                pad,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+        return int(float(uitvoer) * 1000)
+    except (subprocess.CalledProcessError, ValueError, OSError):
+        return None
+
+
+# @anchor: audio:wav-normalisatie
+def zet_om_naar_wav(pad):
+    """
+    Schrijf 'pad' weg als verliesvrije PCM WAV (16 kHz mono); geef dat pad terug.
+
+    Nodig omdat de herkenner van shazamio (shazamio_core) het bestand zelf
+    decodeert: op m4a/aac en mp3 leest die de MPEG-audio-headers verkeerd en
+    schrijft per frame "invalid mpeg audio header" / "skipping junk" naar
+    stderr. PCM WAV geeft geen ruis en dezelfde match. Niet terugvallen naar
+    mp3: een mp3-herencodeer (pydub-default) verpest de herkenning - een
+    bekende m4a kwam daarmee uit op "Stronger (feat. DJ G.n.G.)" in plaats van
+    "Empathy". Het doelbestand komt naast de bron te staan zodat de bestaande
+    temp-opruiming (rmtree) het meeneemt.
+    """
+    audio = AudioSegment.from_file(pad)
+    doelpad = f"{os.path.splitext(pad)[0]}.wav"
+    audio.export(
+        doelpad,
+        format="wav",
+        parameters=["-ar", "16000", "-ac", "1"],
+    )
+    return doelpad
+
+
+# @anchor: youtube:audio-download
+def download_youtube_gedeelte(url, starttijd_ms, duur_sec):
+    """
+    Download alleen het gevraagde gedeelte van de audio van een YouTube-url
+    met yt-dlp --download-sections, zodat niet de hele file wordt overgezet.
+
+    Geeft (pad, tmpmap) terug; de tmpmap moet door de aanroeper opgeruimd
+    worden. Bij een fout wordt RuntimeError gegooid en is de tmpmap weg.
+    """
+    if shutil.which("yt-dlp") is None:
+        raise RuntimeError(
+            "yt-dlp is niet geïnstalleerd (nodig voor YouTube-url's)."
+        )
+
+    tmpmap = tempfile.mkdtemp(prefix="shazam-yt-")
+    sjabloon = os.path.join(tmpmap, "bron.%(ext)s")
+    start_sec = starttijd_ms / 1000
+    einde_sec = start_sec + duur_sec
+
+    print(
+        f"Audio ophalen van {start_sec:.1f}s tot {einde_sec:.1f}s..."
+    )
+
+    try:
+        subprocess.run(
+            [
+                "yt-dlp",
+                "--no-playlist",
+                "--no-warnings",
+                "--no-progress",
+                # @anchor: youtube:geen-force-keyframes
+                # NIET --force-keyframes-at-cuts gebruiken. Gemeten: met de
+                # optie komt er geen match terug, zonder de optie wel
+                # (Empathy / Crystal Castles). De vermoedelijke oorzaak is
+                # niet bevestigd. De decoder-ruis ("invalid mpeg audio
+                # header" / "skipping junk") wordt inmiddels apart
+                # afgehandeld via @anchor: audio:wav-normalisatie, dus de
+                # mislukte match hier is niet aan die ruis toe te schrijven.
+                # Niet "verbeteren" zonder de meting te herhalen.
+                "--download-sections",
+                f"*{start_sec:.3f}-{einde_sec:.3f}",
+                "-f", "bestaudio[ext=m4a]/bestaudio/best",
+                "-o", sjabloon,
+                url,
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as e:
+        shutil.rmtree(tmpmap, ignore_errors=True)
+        regels = (e.stderr or "").strip().splitlines()
+        fout = regels[-1] if regels else "onbekende fout"
+        raise RuntimeError(
+            f"yt-dlp kon het gedeelte niet ophalen: {fout}"
+        ) from e
+
+    gevonden = sorted(
+        os.path.join(tmpmap, naam)
+        for naam in os.listdir(tmpmap)
+        if naam.startswith("bron.")
+    )
+
+    if not gevonden:
+        shutil.rmtree(tmpmap, ignore_errors=True)
+        raise RuntimeError("yt-dlp leverde geen audiobestand op.")
+
+    # Een range die voorbij het einde loopt wordt door yt-dlp ingekort; dat is
+    # gewenst. Alleen een praktisch leeg bestand is een echte fout.
+    if (haal_duur_ms(gevonden[0]) or 0) < 1000:
+        shutil.rmtree(tmpmap, ignore_errors=True)
+        raise RuntimeError(
+            "yt-dlp leverde geen bruikbaar gedeelte op "
+            "(mogelijk voorbij het einde van de video)."
+        )
+
+    # Naar WAV zodat de herkenner geen decoder-ruis schreeft; zie
+    # @anchor: audio:wav-normalisatie
+    try:
+        wav_pad = zet_om_naar_wav(gevonden[0])
+    except Exception as e:
+        shutil.rmtree(tmpmap, ignore_errors=True)
+        raise RuntimeError(f"Audio kon niet naar WAV worden omgezet: {e}") from e
+
+    return wav_pad, tmpmap
+
+
+async def herken_fragment(
+    mp3_pad,
+    start_tijd,
+    fragment_duur_sec=25,
+    json_output=False,
+    keep_temp=False,
+    fragment_pad=None,
+):
+    shazam = Shazam()
+    temp_pad = None
+
+    try:
+        if fragment_pad is not None:
+            # Fragment is al uitgesneden (YouTube-pad); bron niet nodig.
+            temp_pad = fragment_pad
+        else:
+            if not os.path.isfile(mp3_pad):
+                raise FileNotFoundError(mp3_pad)
+
+            print("Audio laden...")
+            audio = AudioSegment.from_file(mp3_pad)
+
+            start_ms = zet_tijd_om_naar_ms(start_tijd)
+
+            if start_ms >= len(audio):
+                raise ValueError(
+                    "Starttijd ligt voorbij het einde van de file."
+                )
+
+            eind_ms = min(
+                start_ms + fragment_duur_sec * 1000,
+                len(audio),
+            )
+
+            print(
+                f"Fragment {start_tijd} ({fragment_duur_sec}s) uitsnijden..."
+            )
+
+            fragment = audio[start_ms:eind_ms]
+
+            with tempfile.NamedTemporaryFile(
+                suffix=".wav",
+                delete=False,
+            ) as tmp:
+                temp_pad = tmp.name
+
+            # WAV i.p.v. mp3: verliesvrij en zonder decoder-ruis; zie
+            # @anchor: audio:wav-normalisatie
+            fragment.export(
+                temp_pad,
+                format="wav",
+                parameters=["-ar", "16000", "-ac", "1"],
+            )
+
+        print("Shazam raadplegen...")
+
+        try:
+            resultaat = await shazam.recognize(temp_pad)
+
+        except asyncio.TimeoutError:
+            print("❌ Netwerk-timeout tijdens verbinden met Shazam.")
+            return 2
+
+        except aiohttp.ClientConnectorError as e:
+            print(f"❌ Kan geen verbinding maken met Shazam ({e.host}).")
+            return 2
+
+        except aiohttp.ClientConnectionError:
+            print("❌ Netwerkverbinding verbroken.")
+            return 2
+
+        except aiohttp.ClientResponseError as e:
+            print(f"❌ HTTP-fout {e.status} van Shazam.")
+            return 2
+
+        except socket.gaierror:
+            print("❌ DNS lookup mislukt.")
+            return 2
+
+        except aiohttp.ClientError as e:
+            print(f"❌ Netwerkfout: {e}")
+            return 2
+
+        except Exception as e:
+            print(f"❌ Onverwachte fout tijdens herkenning: {e}")
+            return 3
+
+        if "track" in resultaat:
+
+            track = resultaat["track"]
+
+            if json_output:
+                print(
+                    json.dumps(
+                        {
+                            "title": track.get("title"),
+                            "artist": track.get("subtitle"),
+                        },
+                        indent=2,
+                    )
+                )
+            else:
+                print()
+                print("✅ Nummer gevonden")
+                print(f"Titel   : {track.get('title')}")
+                print(f"Artiest : {track.get('subtitle')}")
+
+            return 0
+
+        if json_output:
+            print("{}")
+        else:
+            print("❌ Geen herkenning.")
+
+        return 1
+
+    finally:
+        if (
+            temp_pad
+            and temp_pad != fragment_pad
+            and os.path.exists(temp_pad)
+            and not keep_temp
+        ):
+            os.remove(temp_pad)
+        elif temp_pad and keep_temp:
+            print(f"Fragment bewaard: {temp_pad}")
+
+
+def maak_parser():
+
+    parser = argparse.ArgumentParser(
+        description="Herken een fragment uit een mediafile met Shazam."
+    )
+
+    parser.add_argument(
+        "mediafile",
+        help=(
+            "Pad naar media-bestand, of een YouTube-url "
+            "(met optioneel een starttijd, bv. ?t=1m30s)."
+        ),
+    )
+
+    parser.add_argument(
+        "-t",
+        "--time",
+        default=None,
+        help=(
+            "Starttijd. "
+            "Voorbeelden: "
+            "65 (seconden), "
+            "10:03 (MM:SS), "
+            "1:10:03 (UU:MM:SS). "
+            "Default: de tijd uit de url, anders 0."
+        ),
+    )
+
+    parser.add_argument(
+        "-d",
+        "--duration",
+        type=int,
+        default=25,
+        help="Fragmentduur in seconden (default: 25)",
+    )
+
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="JSON-output",
+    )
+
+    parser.add_argument(
+        "--keep-temp",
+        action="store_true",
+        help=(
+            "Bewaar tijdelijk fragment "
+            "(bij een url ook het gedownloade audiobestand)."
+        ),
+    )
+
+    return parser
+
+
+async def main():
+    parser = maak_parser()
+    args = parser.parse_args()
+
+    bron = args.mediafile
+    bron_is_url = is_youtube_url(bron)
+
+    # @anchor: main:youtube-pad
+    if bron_is_url:
+        if shutil.which("yt-dlp") is None:
+            print("yt-dlp is niet geïnstalleerd.", file=sys.stderr)
+            raise SystemExit(2)
+
+        if args.time is not None:
+            starttijd = parse_youtube_tijd(args.time)
+            if starttijd is None:
+                print(
+                    f"Ongeldige starttijd: {args.time}",
+                    file=sys.stderr,
+                )
+                raise SystemExit(2)
+        else:
+            try:
+                starttijd = haal_tijd_uit_url(bron)
+            except ValueError as fout:
+                # De foutmelding van haal_tijd_uit_url noemt de url-tijd al.
+                print(f"❌ {fout}", file=sys.stderr)
+                raise SystemExit(2)
+
+            if starttijd is None:
+                starttijd = 0
+
+        print(f"Audio ophalen van {bron}")
+        try:
+            audio_pad, tmpdir = download_youtube_gedeelte(
+                bron,
+                starttijd,
+                args.duration,
+            )
+        except (RuntimeError, ValueError) as fout:
+            print(f"Ophalen mislukt: {fout}", file=sys.stderr)
+            raise SystemExit(2)
+
+        try:
+            # Het gedeelte is al afgesneden en op 0 gezet door yt-dlp, dus geen
+            # tweede knipronde met de absolute starttijd.
+            code = await herken_fragment(
+                None,
+                0,
+                args.duration,
+                args.json,
+                args.keep_temp,
+                fragment_pad=audio_pad,
+            )
+        finally:
+            if args.keep_temp:
+                print(f"Audio bewaard: {audio_pad}")
+            else:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+
+        raise SystemExit(code)
+
+    # @anchor: main:lokaal-pad
+    try:
+        code = await herken_fragment(
+            bron,
+            args.time if args.time is not None else "0",
+            args.duration,
+            args.json,
+            args.keep_temp,
+        )
+    except FileNotFoundError:
+        print(f"❌ Bestand niet gevonden: {bron}", file=sys.stderr)
+        raise SystemExit(2)
+    except ValueError as fout:
+        # Ongeldige -t, of een starttijd voorbij het einde van de file.
+        print(f"❌ {fout}", file=sys.stderr)
+        raise SystemExit(2)
+
+    raise SystemExit(code)
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nAfgebroken.")
+        raise SystemExit(130)
