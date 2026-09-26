@@ -3,7 +3,7 @@ set -u
 
 SINK_NAME="${SHAZAM_SINK_NAME:-shazam_sink}"
 SINK_DESCRIPTION="${SHAZAM_SINK_DESCRIPTION:-ShazamSink}"
-LATENCY_MS="${SHAZAM_LOOPBACK_LATENCY_MS:-20}"
+LATENCY_MS="${SHAZAM_LOOPBACK_LATENCY_MS:-100}"
 
 die() {
     printf '[CrateDigger] audio setup failed: %s\n' "$*" >&2
@@ -32,7 +32,7 @@ MONITOR="${SINK_NAME}.monitor"
 pactl list short sources | awk -v name="$MONITOR" '$2 == name {found=1} END {exit !found}' \
     || die "sink monitor '$MONITOR' does not exist"
 
-SOURCE="${SHAZAM_SOURCE:-}"
+SOURCE="${SHAZAM_AUDIO_SOURCE:-}"
 if [ -z "$SOURCE" ]; then
     SOURCE="$(pactl list short sources | awk '$2 ~ /^bluez_sink\..*\.a2dp_sink\.monitor$/ {print $2; exit}')"
 fi
@@ -44,12 +44,42 @@ fi
 pactl list short sources | awk -v name="$SOURCE" '$2 == name {found=1} END {exit !found}' \
     || die "source '$SOURCE' does not exist"
 
-if pactl list short modules | grep -F "module-loopback" | grep -F "source=$SOURCE" | grep -F "sink=$SINK_NAME" >/dev/null; then
-    printf '[CrateDigger] loopback already exists: %s -> %s\n' "$SOURCE" "$SINK_NAME"
-    exit 0
+FOUND_MODULE_ID=""
+FOUND_LATENCY=""
+
+while read -r MODULE_ID MODULE_NAME MODULE_ARGS; do
+    [ "$MODULE_NAME" = "module-loopback" ] || continue
+
+    case " $MODULE_ARGS " in
+        *" source=$SOURCE "*)
+            case " $MODULE_ARGS " in
+                *" sink=$SINK_NAME "*)
+                    FOUND_MODULE_ID="$MODULE_ID"
+                    FOUND_LATENCY="$(printf '%s\n' "$MODULE_ARGS" | grep -oE '(^| )latency_msec=[^ ]+' | head -n1 | cut -d= -f2)"
+                    break
+                    ;;
+            esac
+            ;;
+    esac
+done < <(pactl list short modules)
+
+if [ -n "$FOUND_MODULE_ID" ]; then
+    if [ "$FOUND_LATENCY" = "$LATENCY_MS" ]; then
+        printf '[CrateDigger] loopback already configured: %s -> %s (%sms)\n' \
+            "$SOURCE" "$SINK_NAME" "$LATENCY_MS"
+        exit 0
+    fi
+
+    printf '[CrateDigger] replacing loopback module %s: %s -> %s (%sms -> %sms)\n' \
+        "$FOUND_MODULE_ID" "$SOURCE" "$SINK_NAME" "${FOUND_LATENCY:-unknown}" "$LATENCY_MS"
+
+    pactl unload-module "$FOUND_MODULE_ID" \
+        || die "could not unload existing loopback module $FOUND_MODULE_ID"
 fi
 
-printf '[CrateDigger] creating loopback: %s -> %s\n' "$SOURCE" "$SINK_NAME"
+printf '[CrateDigger] creating loopback: %s -> %s (%sms)\n' \
+    "$SOURCE" "$SINK_NAME" "$LATENCY_MS"
+
 pactl load-module module-loopback \
     source="$SOURCE" \
     sink="$SINK_NAME" \
