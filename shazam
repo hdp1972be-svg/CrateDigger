@@ -409,15 +409,27 @@ def hook_waarden(
 
     return waarden
 
-def bewaar_nomatch_fragment(temp_pad):
-    """Bewaar een niet-herkend fragment buiten de normale temp-opruiming."""
+def bewaar_nomatch_fragment(temp_pad, profile_name=None):
+    """Bewaar een niet-herkend fragment in de profielmap."""
     if not temp_pad or not os.path.isfile(temp_pad):
         return ""
+
+    profiel_waarden = laad_profile_waarden(profile_name or "default")
+    nomatch_dir = str(profiel_waarden.get("nomatch_dir", "") or "").strip()
+
+    if nomatch_dir:
+        doel_dir = os.path.abspath(os.path.expanduser(nomatch_dir))
+        try:
+            os.makedirs(doel_dir, exist_ok=True)
+        except OSError:
+            return ""
+    else:
+        doel_dir = tempfile.gettempdir()
 
     fd, doelpad = tempfile.mkstemp(
         prefix="cratedigger-nomatch-",
         suffix=".wav",
-        dir=tempfile.gettempdir(),
+        dir=doel_dir,
     )
     os.close(fd)
 
@@ -1073,7 +1085,10 @@ async def herken_fragment(
 
             return 0
 
-        nomatch_file = bewaar_nomatch_fragment(temp_pad)
+        nomatch_file = bewaar_nomatch_fragment(
+        temp_pad,
+        profile_name=profile_name,
+    )
 
         if json_output:
             record = {
@@ -1649,6 +1664,7 @@ DEFAULT_PROFILE = {
     "loop": False,
     "json": False,
     "keep_temp": False,
+    "nomatch_dir": "",
     "debug": False,
     "live": False,
     "recursive": False,
