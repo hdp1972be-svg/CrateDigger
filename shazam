@@ -490,7 +490,6 @@ def voer_afterfound_hook_uit(
     source=None,
     source_type=None,
     profile_name=None,
-    debug=False,
 ):
     """Compatibele wrapper voor de afterfound hook."""
     waarden = hook_waarden(
@@ -818,6 +817,7 @@ async def herken_fragment(
     source=None,
     source_type=None,
     profile_name=None,
+    debug=False,
 ):
     shazam = Shazam()
     temp_pad = None
