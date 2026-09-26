@@ -723,13 +723,17 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
     --interval bepaalt hoeveel seconden we wachten na een herkenningspoging
     voordat de volgende opname start.
     """
-    while True:
-        fragment_pad = None
+    besturing = LiveBesturing()
+    besturing.start()
 
-        try:
-            fragment_pad, stil = neem_live_audio_op(
-                duur_sec, invoer, apparaat
-            )
+    try:
+        while True:
+            fragment_pad = None
+
+            try:
+                fragment_pad, stil = neem_live_audio_op(
+                    duur_sec, invoer, apparaat, besturing
+                )
 
             if stil:
                 print(
@@ -760,16 +764,18 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
             elif fragment_pad and keep_temp:
                 print(f"Fragment bewaard: {fragment_pad}")
 
-        if not loop:
-            return code
+            if not loop:
+                return code
 
-        if interval_sec > 0:
-            print(f"Volgende opname over {interval_sec}s...")
-            await asyncio.sleep(interval_sec)
+            if interval_sec > 0:
+                print(f"Volgende opname over {interval_sec}s...")
+                besturing.wacht(interval_sec)
 
-        if code == 0 and delay_sec > 0:
-            print(f"Delay na gevonden nummer: {delay_sec}s...")
-            await asyncio.sleep(delay_sec)
+            if code == 0 and delay_sec > 0:
+                print(f"Delay na gevonden nummer: {delay_sec}s...")
+                besturing.wacht(delay_sec)
+    finally:
+        besturing.stop()
 
 
 def maak_parser():
