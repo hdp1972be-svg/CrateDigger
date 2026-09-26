@@ -11,6 +11,8 @@ import subprocess
 import sys
 import select
 import termios
+import threading
+import queue
 import tty
 import tempfile
 import time
@@ -512,14 +514,42 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
     terminal_fd = None
     terminal_settings = None
     paused = False
+    input_queue = queue.Queue()
+    input_thread = None
 
-    # In een interactieve terminal kan 'p' de FFmpeg-opname pauzeren/hervatten.
-    # cbreak laat de toets direct binnenkomen zonder Enter, terwijl Ctrl-C
-    # gewoon als SIGINT blijft werken.
+    # Lees toetsen in een aparte thread. De FFmpeg-pipe blijft daardoor
+    # volledig onafhankelijk van terminal-input; dit is robuuster dan stdin
+    # samen met process.stdout in dezelfde select()-lus te multiplexen.
     if sys.stdin.isatty() and os.name == "posix":
         terminal_fd = sys.stdin.fileno()
         terminal_settings = termios.tcgetattr(terminal_fd)
         tty.setcbreak(terminal_fd)
+
+        # Geen 'p' op het scherm, maar ISIG blijft actief zodat Ctrl-C werkt.
+        terminal_noecho = termios.tcgetattr(terminal_fd)
+        terminal_noecho[3] &= ~termios.ECHO
+        termios.tcsetattr(
+            terminal_fd,
+            termios.TCSADRAIN,
+            terminal_noecho,
+        )
+
+        def lees_toetsen():
+            while True:
+                try:
+                    toets = os.read(terminal_fd, 1)
+                except OSError:
+                    return
+                if not toets:
+                    return
+                input_queue.put(toets.lower())
+
+        input_thread = threading.Thread(
+            target=lees_toetsen,
+            name="shazam-input",
+            daemon=True,
+        )
+        input_thread.start()
         print("Druk 'p' om te pauzeren/hervatten.")
 
     try:
@@ -536,17 +566,15 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
             vorige_sec = 0
 
             while True:
-                leesbare, _, _ = select.select(
-                    [process.stdout, sys.stdin] if terminal_fd is not None else [process.stdout],
-                    [],
-                    [],
-                    0.1,
-                )
+                # Verwerk alle reeds ingedrukte toetsen zonder de
+                # audiopipe te blokkeren.
+                while True:
+                    try:
+                        toets = input_queue.get_nowait()
+                    except queue.Empty:
+                        break
 
-                if terminal_fd is not None and sys.stdin in leesbare:
-                    toets = os.read(terminal_fd, 1)
-
-                    if toets.lower() == b"p":
+                    if toets == b"p":
                         if paused:
                             process.send_signal(signal.SIGCONT)
                             paused = False
@@ -555,6 +583,13 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
                             process.send_signal(signal.SIGSTOP)
                             paused = True
                             print("\n⏸ Paused — press 'p' to continue")
+
+                leesbare, _, _ = select.select(
+                    [process.stdout],
+                    [],
+                    [],
+                    0.1,
+                )
 
                 if process.stdout in leesbare and not paused:
                     data = process.stdout.read(4096)
