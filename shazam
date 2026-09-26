@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+import atexit
 import json
 import os
 import re
@@ -1004,6 +1005,10 @@ class LiveBesturing:
             daemon=True,
         )
         self.input_thread.start()
+        # Keep a final safety net for normal interpreter shutdown. The live
+        # loop also calls stop() explicitly, but this covers exits that happen
+        # outside that control flow.
+        atexit.register(self.stop)
         print(kleur("Druk 'p' om te pauzeren/hervatten.", Kleuren.YELLOW))
 
     def verwerk_toetsen(self, process=None):
@@ -1267,12 +1272,21 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
     # ffmpeg is interrupted, relying only on the outer KeyboardInterrupt
     # handler can otherwise leave the terminal in cbreak/noecho mode.
     vorige_sigint = signal.getsignal(signal.SIGINT)
+    vorige_sigterm = signal.getsignal(signal.SIGTERM)
+    vorige_sighup = signal.getsignal(signal.SIGHUP) if hasattr(signal, "SIGHUP") else None
 
     def herstel_tty_bij_sigint(signum, frame):
         besturing.stop()
         raise KeyboardInterrupt
 
+    def herstel_tty_bij_terminate(signum, frame):
+        besturing.stop()
+        raise SystemExit(128 + signum)
+
     signal.signal(signal.SIGINT, herstel_tty_bij_sigint)
+    signal.signal(signal.SIGTERM, herstel_tty_bij_terminate)
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, herstel_tty_bij_terminate)
 
     try:
         while True:
@@ -1343,6 +1357,9 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
     finally:
         besturing.stop()
         signal.signal(signal.SIGINT, vorige_sigint)
+        signal.signal(signal.SIGTERM, vorige_sigterm)
+        if hasattr(signal, "SIGHUP"):
+            signal.signal(signal.SIGHUP, vorige_sighup)
 
 
 MEDIA_EXTENSIES = {
