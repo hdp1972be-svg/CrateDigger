@@ -66,8 +66,31 @@ def toon_hooks_status():
             print(f"🔗 afterfound hook actief: {command}")
 
 
+_laatste_afterfound = None
+
+
 def voer_afterfound_hook_uit(track):
-    """Voer [HOOKS] afterfound uit na een succesvolle herkenning."""
+    """Voer [HOOKS] afterfound uit na een nieuwe herkenning."""
+    global _laatste_afterfound
+
+    waarden = {
+        "SHAZAM_ARTIST": str(track.get("subtitle") or ""),
+        "SHAZAM_RECORD": str(track.get("title") or ""),
+        "SHAZAM_ID": str(track.get("key") or ""),
+    }
+
+    huidige = (
+        waarden["SHAZAM_ARTIST"],
+        waarden["SHAZAM_RECORD"],
+        waarden["SHAZAM_ID"],
+    )
+
+    if huidige == _laatste_afterfound:
+        print("🔗 afterfound hook overgeslagen: hetzelfde nummer als vorige herkenning.")
+        return
+
+    _laatste_afterfound = huidige
+
     config = laad_hooks_config()
 
     if config is None or not config.has_option("HOOKS", "afterfound"):
@@ -81,12 +104,7 @@ def voer_afterfound_hook_uit(track):
     if not command:
         return
 
-    waarden = {
-        "SHAZAM_ARTIST": str(track.get("subtitle") or ""),
-        "SHAZAM_RECORD": str(track.get("title") or ""),
-        "SHAZAM_ID": str(track.get("key") or ""),
-        "SHAZAM_DATE": date.today().isoformat(),
-    }
+    waarden["SHAZAM_DATE"] = date.today().isoformat()
 
     for placeholder, variable in (
         ("%artist", "SHAZAM_ARTIST"),
