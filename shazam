@@ -650,16 +650,6 @@ async def herken_fragment(
                 parameters=["-ar", "16000", "-ac", "1"],
             )
 
-        voer_hook_uit(
-            "beforefound",
-            hook_waarden(
-                bron_url=bron_url,
-                source=source,
-                source_type=source_type,
-            ),
-            profile_name=profile_name,
-        )
-
         print(kleur("Shazam raadplegen...", Kleuren.CYAN))
 
         try:
@@ -781,6 +771,18 @@ async def herken_fragment(
                 if source:
                     print(f"Bron    : {source}")
 
+            waarden = hook_waarden(
+                track=track,
+                bron_url=bron_url,
+                confidence=confidence,
+                source=source,
+                source_type=source_type,
+            )
+            voer_hook_uit(
+                "beforefound",
+                waarden,
+                profile_name=profile_name,
+            )
             voer_afterfound_hook_uit(
                 track,
                 bron_url=bron_url,
@@ -1122,7 +1124,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
     return tmp_pad, not any_signal, reset_requested, besturing.quit_requested if besturing is not None else False
 
 
-async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_temp, invoer, apparaat):
+async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_temp, invoer, apparaat, profile_name=None):
     """
     Neem één of herhaalde live audiofragmenten op en herken ze met Shazam.
 
@@ -1175,6 +1177,7 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
                         fragment_pad=fragment_pad,
                         source_type="live",
                         source=f"{invoer}:{apparaat}",
+                        profile_name=profile_name,
                     )
 
             except RuntimeError as fout:
@@ -1248,7 +1251,7 @@ def verzamel_media_bestanden(pad, recursief=False):
     ]
 
 
-async def batch_modus(pad, recursief, starttijd, duur, json_output, keep_temp):
+async def batch_modus(pad, recursief, starttijd, duur, json_output, keep_temp, profile_name=None):
     """Herken alle lokale mediafiles in een directory."""
     bestanden = verzamel_media_bestanden(pad, recursief)
     if not bestanden:
@@ -1269,6 +1272,7 @@ async def batch_modus(pad, recursief, starttijd, duur, json_output, keep_temp):
                 keep_temp,
                 source=bestand,
                 source_type="file",
+                profile_name=profile_name,
             )
         except (FileNotFoundError, ValueError) as fout:
             print(f"❌ {fout}", file=sys.stderr)
@@ -1280,7 +1284,7 @@ async def batch_modus(pad, recursief, starttijd, duur, json_output, keep_temp):
     return laatste_code
 
 
-async def watch_modus(pad, recursief, duur, json_output, keep_temp):
+async def watch_modus(pad, recursief, duur, json_output, keep_temp, profile_name=None):
     """Blijf een directory pollen en herken nieuw verschenen lokale mediafiles."""
     pad = os.path.abspath(os.path.expanduser(pad))
     if not os.path.isdir(pad):
@@ -1315,6 +1319,7 @@ async def watch_modus(pad, recursief, duur, json_output, keep_temp):
                         keep_temp,
                         source=bestand,
                         source_type="file",
+                        profile_name=profile_name,
                     )
                 except (FileNotFoundError, ValueError) as fout:
                     print(f"❌ {fout}", file=sys.stderr)
@@ -1539,6 +1544,7 @@ async def main():
                 args.duration,
                 args.json,
                 args.keep_temp,
+                profile_name=args.profile,
             )
         except FileNotFoundError:
             print(f"❌ Directory niet gevonden: {args.watch}", file=sys.stderr)
@@ -1568,6 +1574,7 @@ async def main():
             args.duration,
             args.json,
             args.keep_temp,
+            profile_name=args.profile,
         )
         raise SystemExit(code)
 
@@ -1625,6 +1632,7 @@ async def main():
                 source=bron,
                 source_type="url",
                 bron_url=bron,
+                profile_name=args.profile,
             )
         finally:
             if args.keep_temp:
@@ -1644,6 +1652,7 @@ async def main():
             args.keep_temp,
             source=bron,
             source_type="file",
+            profile_name=args.profile,
         )
     except FileNotFoundError:
         print(f"❌ Bestand niet gevonden: {bron}", file=sys.stderr)
