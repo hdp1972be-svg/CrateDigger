@@ -290,6 +290,53 @@ def hook_command(event, profile_name=None):
     return ""
 
 
+def _shazam_env_naam(parts):
+    """Maak een stabiele shell-variabelenaam uit een Shazam JSON-pad."""
+    tekst = "_".join(str(part) for part in parts)
+    tekst = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", tekst)
+    tekst = re.sub(r"[^A-Za-z0-9]+", "_", tekst).strip("_").upper()
+    return f"SHAZAM_{tekst}" if tekst else "SHAZAM_VALUE"
+
+
+def _shazam_flatten(value, path=()):
+    """Flatten scalar leaves uit Shazam-metadata naar environment variables."""
+    gevonden = {}
+    if isinstance(value, dict):
+        for sleutel, child in value.items():
+            gevonden.update(_shazam_flatten(child, path + (sleutel,)))
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            gevonden.update(_shazam_flatten(child, path + (index,)))
+    else:
+        naam = _shazam_env_naam(path)
+        if value is None:
+            gevonden[naam] = ""
+        elif isinstance(value, bool):
+            gevonden[naam] = "true" if value else "false"
+        else:
+            gevonden[naam] = str(value)
+    return gevonden
+
+
+def _shazam_jaar(track):
+    """Haal een viercijferig releasejaar uit bekende Shazam-velden."""
+    kandidaten = []
+    for sleutel in ("releasedate", "release_date", "releaseDate", "year", "release_year"):
+        if sleutel in track:
+            kandidaten.append(track.get(sleutel))
+    album = track.get("album")
+    if isinstance(album, dict):
+        for sleutel in ("releasedate", "release_date", "releaseDate", "year"):
+            if sleutel in album:
+                kandidaten.append(album.get(sleutel))
+
+    for waarde in kandidaten:
+        match = re.search(r"\b(19|20)\d{2}\b", str(waarde or ""))
+        if match:
+            return match.group(0)
+    return ""
+
+
 def hook_waarden(
     track=None,
     bron_url=None,
@@ -299,19 +346,26 @@ def hook_waarden(
     error=None,
     exit_code=None,
 ):
-    """Bouw de gemeenschappelijke omgeving voor alle hooks."""
+    """Bouw de hookomgeving uit alle scalar Shazam-trackvelden plus metadata."""
     track = track or {}
-    genres = track.get("genres") or {}
-    if isinstance(genres, dict):
-        genre = str(genres.get("primary") or "")
-    else:
-        genre = str(genres[0] if genres else "")
+    waarden = _shazam_flatten(track)
 
-    return {
+    waarden["SHAZAM_JSON"] = json.dumps(
+        track,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    waarden["SHAZAM_TRACK_JSON"] = waarden["SHAZAM_JSON"]
+
+    waarden.update({
         "SHAZAM_ARTIST": str(track.get("subtitle") or ""),
         "SHAZAM_RECORD": str(track.get("title") or ""),
         "SHAZAM_ID": str(track.get("key") or ""),
-        "SHAZAM_GENRE": genre,
+        "SHAZAM_GENRE": str(
+            (track.get("genres") or {}).get("primary", "")
+            if isinstance(track.get("genres") or {}, dict)
+            else ""
+        ),
         "SHAZAM_CONFIDENCE": "" if confidence is None else str(confidence),
         "SHAZAM_DATE": date.today().isoformat(),
         "SHAZAM_URL": str(bron_url or ""),
@@ -320,8 +374,19 @@ def hook_waarden(
         "SHAZAM_SOURCE_TYPE": str(source_type or ("url" if bron_url else "")),
         "SHAZAM_ERROR": str(error or ""),
         "SHAZAM_EXIT_CODE": "" if exit_code is None else str(exit_code),
-    }
+        "SHAZAM_YEAR": _shazam_jaar(track),
+    })
 
+    alias_map = {
+        "SHAZAM_SUBTITLE": "SHAZAM_ARTIST",
+        "SHAZAM_TITLE": "SHAZAM_RECORD",
+        "SHAZAM_KEY": "SHAZAM_ID",
+        "SHAZAM_GENRES_PRIMARY": "SHAZAM_GENRE",
+    }
+    for alias, source_name in alias_map.items():
+        waarden[alias] = waarden.get(source_name, "")
+
+    return waarden
 
 def voer_hook_uit(
     event,
@@ -355,21 +420,23 @@ def voer_hook_uit(
     if command.lower().startswith("shell exec "):
         command = command[11:].lstrip()
 
-    for placeholder, variable in (
-        ("%artist", "SHAZAM_ARTIST"),
-        ("%record", "SHAZAM_RECORD"),
-        ("%id", "SHAZAM_ID"),
-        ("%genre", "SHAZAM_GENRE"),
-        ("%confidence", "SHAZAM_CONFIDENCE"),
-        ("%date", "SHAZAM_DATE"),
-        ("%url", "SHAZAM_URL"),
-        ("%youtubeid", "YOUTUBE_ID"),
-        ("%source", "SHAZAM_SOURCE"),
-        ("%sourcetype", "SHAZAM_SOURCE_TYPE"),
-        ("%error", "SHAZAM_ERROR"),
-        ("%exitcode", "SHAZAM_EXIT_CODE"),
+    # Elke SHAZAM_* variabele is ook als %placeholder beschikbaar.
+    placeholder_vars = {
+        naam[7:].lower(): naam
+        for naam in waarden
+        if naam.startswith("SHAZAM_")
+    }
+    placeholder_vars["youtubeid"] = "YOUTUBE_ID"
+
+    for placeholder, variable in sorted(
+        placeholder_vars.items(),
+        key=lambda item: len(item[0]),
+        reverse=True,
     ):
-        command = command.replace(placeholder, f'"${variable}"')
+        command = command.replace(
+            f"%{placeholder}",
+            f'"$' + '{variable}"',
+        )
 
     omgeving = os.environ.copy()
     omgeving.update(waarden)
@@ -878,17 +945,14 @@ async def herken_fragment(
             if json_output:
                 record = {
                     "status": "found",
-                    "title": track.get("title"),
-                    "artist": track.get("subtitle"),
-                    "genre": genre,
+                    "track": track,
+                    "confidence": confidence,
+                    "source": source or bron_url or "",
+                    "source_type": source_type or ("url" if bron_url else ""),
                 }
-                if confidence is not None:
-                    record["confidence"] = confidence
-                record["source"] = source or bron_url or ""
-                record["source_type"] = source_type or ("url" if bron_url else "")
                 if bron_url:
                     record["youtube_id"] = youtube_id_uit_url(bron_url)
-                print(json.dumps(record, indent=2))
+                print(json.dumps(record, indent=2, ensure_ascii=False))
             else:
                 print()
                 print("✅ Nummer gevonden")
@@ -897,6 +961,17 @@ async def herken_fragment(
                 print(f"Genre   : {genre or 'Onbekend'}")
                 if confidence is not None:
                     print(f"Match   : {confidence:g}")
+                jaar = _shazam_jaar(track)
+                if jaar:
+                    print(f"Jaar    : {jaar}")
+                extra = _shazam_flatten(track)
+                for naam, waarde in extra.items():
+                    if naam in {
+                        "SHAZAM_ARTIST", "SHAZAM_RECORD", "SHAZAM_GENRE",
+                        "SHAZAM_YEAR"
+                    } or not waarde:
+                        continue
+                    print(f"{naam[7:].lower().replace('_', '.'):12}: {waarde}")
                 if source:
                     print(f"Bron    : {source}")
 
