@@ -617,3 +617,26 @@ You can jump around a mix and query different timestamps without having to liste
 ## License
 
 See the repository license if one is added.
+
+
+### Source URL / YouTube ID in Taskwarrior annotations
+
+For URL-based recognition, the hook also exposes `%url` and `%youtubeid`. Taskwarrior cannot create a task and annotate it in the same command, so capture the created task ID and then annotate it.
+
+```ini
+[HOOKS]
+afterfound = shell exec id=$(task add "%artist %record %id %date" +MUSIC | sed -n 's/.*Created task \\([0-9][0-9]*\\).*/\\1/p'); [ -n "$id" ] && task "$id" annotate "source: %url youtubeid: %youtubeid"
+```
+
+Taskwarrior's `annotate` command adds a note to an existing task; annotations are searchable text.
+
+Available hook placeholders:
+
+- `%artist` — Shazam artist
+- `%record` — Shazam title
+- `%id` — Shazam track ID
+- `%date` — recognition date
+- `%url` — original source URL
+- `%youtubeid` — YouTube video ID
+
+For live/PulseAudio recognition, `%url` and `%youtubeid` are empty.
