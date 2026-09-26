@@ -45,38 +45,20 @@ fi
 pactl list short sources | awk -v name="$SOURCE" '$2 == name {found=1} END {exit !found}' \
     || die "source '$SOURCE' does not exist"
 
-FOUND_MODULE_ID=""
-FOUND_LATENCY=""
-
+# Remove every loopback feeding our capture sink before selecting the
+# current Bluetooth monitor. Reconnects can otherwise leave a stale
+# BlueZ source connected to shazam_sink.monitor and create feedback/noise.
 while read -r MODULE_ID MODULE_NAME MODULE_ARGS; do
     [ "$MODULE_NAME" = "module-loopback" ] || continue
-
     case " $MODULE_ARGS " in
-        *" source=$SOURCE "*)
-            case " $MODULE_ARGS " in
-                *" sink=$SINK_NAME "*)
-                    FOUND_MODULE_ID="$MODULE_ID"
-                    FOUND_LATENCY="$(printf '%s\n' "$MODULE_ARGS" | grep -oE '(^| )latency_msec=[^ ]+' | head -n1 | cut -d= -f2)"
-                    break
-                    ;;
-            esac
+        *" sink=$SINK_NAME "*)
+            printf '[CrateDigger] removing existing loopback %s -> %s\n' \
+                "$MODULE_ID" "$SINK_NAME"
+            pactl unload-module "$MODULE_ID" \
+                || die "could not unload loopback module $MODULE_ID"
             ;;
     esac
 done < <(pactl list short modules)
-
-if [ -n "$FOUND_MODULE_ID" ]; then
-    if [ "$FOUND_LATENCY" = "$LATENCY_MS" ]; then
-        printf '[CrateDigger] loopback already configured: %s -> %s (%sms)\n' \
-            "$SOURCE" "$SINK_NAME" "$LATENCY_MS"
-        exit 0
-    fi
-
-    printf '[CrateDigger] replacing loopback module %s: %s -> %s (%sms -> %sms)\n' \
-        "$FOUND_MODULE_ID" "$SOURCE" "$SINK_NAME" "${FOUND_LATENCY:-unknown}" "$LATENCY_MS"
-
-    pactl unload-module "$FOUND_MODULE_ID" \
-        || die "could not unload existing loopback module $FOUND_MODULE_ID"
-fi
 
 printf '[CrateDigger] creating loopback: %s -> %s (%sms)\n' \
     "$SOURCE" "$SINK_NAME" "$LATENCY_MS"
