@@ -118,7 +118,21 @@ def youtube_id_uit_url(url):
     return ""
 
 
-def voer_afterfound_hook_uit(track, bron_url=None):
+def haal_confidence(track):
+    """Haal een door Shazam aangeleverde confidence/score op, indien aanwezig."""
+    if not isinstance(track, dict):
+        return None
+    for sleutel in ("score", "match_score", "confidence"):
+        waarde = track.get(sleutel)
+        try:
+            if waarde is not None:
+                return float(waarde)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def voer_afterfound_hook_uit(track, bron_url=None, confidence=None):
     """Voer [HOOKS] afterfound uit na een nieuwe herkenning."""
     global _laatste_afterfound
 
@@ -133,6 +147,7 @@ def voer_afterfound_hook_uit(track, bron_url=None):
         "SHAZAM_RECORD": str(track.get("title") or ""),
         "SHAZAM_ID": str(track.get("key") or ""),
         "SHAZAM_GENRE": genre,
+        "SHAZAM_CONFIDENCE": "" if confidence is None else str(confidence),
         "SHAZAM_URL": str(bron_url or ""),
         "YOUTUBE_ID": youtube_id_uit_url(bron_url),
     }
@@ -169,6 +184,7 @@ def voer_afterfound_hook_uit(track, bron_url=None):
         ("%record", "SHAZAM_RECORD"),
         ("%id", "SHAZAM_ID"),
         ("%genre", "SHAZAM_GENRE"),
+        ("%confidence", "SHAZAM_CONFIDENCE"),
         ("%date", "SHAZAM_DATE"),
         ("%url", "SHAZAM_URL"),
         ("%youtubeid", "YOUTUBE_ID"),
@@ -595,30 +611,37 @@ async def herken_fragment(
             else:
                 genre = str(genres[0] if genres else "")
 
+            confidence = haal_confidence(track)
+
             if json_output:
-                print(
-                    json.dumps(
-                        {
-                            "title": track.get("title"),
-                            "artist": track.get("subtitle"),
-                            "genre": genre,
-                        },
-                        indent=2,
-                    )
-                )
+                record = {
+                    "status": "found",
+                    "title": track.get("title"),
+                    "artist": track.get("subtitle"),
+                    "genre": genre,
+                }
+                if confidence is not None:
+                    record["confidence"] = confidence
+                print(json.dumps(record, indent=2))
             else:
                 print()
                 print("✅ Nummer gevonden")
                 print(f"Titel   : {track.get('title')}")
                 print(f"Artiest : {track.get('subtitle')}")
                 print(f"Genre   : {genre or 'Onbekend'}")
+                if confidence is not None:
+                    print(f"Match   : {confidence:g}")
 
-            voer_afterfound_hook_uit(track, bron_url=bron_url)
+            voer_afterfound_hook_uit(
+                track,
+                bron_url=bron_url,
+                confidence=confidence,
+            )
 
             return 0
 
         if json_output:
-            print("{}")
+            print(json.dumps({"status": "no_match"}))
         else:
             print("❌ Geen herkenning.")
 
@@ -1026,6 +1049,113 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
         signal.signal(signal.SIGINT, vorige_sigint)
 
 
+MEDIA_EXTENSIES = {
+    ".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus",
+    ".webm", ".mp4", ".mkv", ".mov", ".avi", ".m4v", ".wmv",
+}
+
+
+def verzamel_media_bestanden(pad, recursief=False):
+    """Vind ondersteunde lokale mediafiles, gesorteerd voor voorspelbare output."""
+    pad = os.path.abspath(os.path.expanduser(pad))
+
+    if os.path.isfile(pad):
+        return [pad]
+
+    if not os.path.isdir(pad):
+        raise FileNotFoundError(pad)
+
+    if recursief:
+        gevonden = []
+        for root, dirs, bestanden in os.walk(pad):
+            dirs.sort()
+            for naam in sorted(bestanden):
+                bestand = os.path.join(root, naam)
+                if os.path.splitext(naam)[1].lower() in MEDIA_EXTENSIES:
+                    gevonden.append(bestand)
+        return gevonden
+
+    return [
+        os.path.join(pad, naam)
+        for naam in sorted(os.listdir(pad))
+        if os.path.isfile(os.path.join(pad, naam))
+        and os.path.splitext(naam)[1].lower() in MEDIA_EXTENSIES
+    ]
+
+
+async def batch_modus(pad, recursief, starttijd, duur, json_output, keep_temp):
+    """Herken alle lokale mediafiles in een directory."""
+    bestanden = verzamel_media_bestanden(pad, recursief)
+    if not bestanden:
+        print("Geen ondersteunde mediafiles gevonden.")
+        return 1
+
+    laatste_code = 1
+    totaal = len(bestanden)
+
+    for index, bestand in enumerate(bestanden, 1):
+        print(kleur(f"\n[{index}/{totaal}] {bestand}", Kleuren.BLUE))
+        try:
+            code = await herken_fragment(
+                bestand,
+                starttijd,
+                duur,
+                json_output,
+                keep_temp,
+            )
+        except (FileNotFoundError, ValueError) as fout:
+            print(f"❌ {fout}", file=sys.stderr)
+            code = 2
+
+        if code == 0:
+            laatste_code = 0
+
+    return laatste_code
+
+
+async def watch_modus(pad, recursief, duur, json_output, keep_temp):
+    """Blijf een directory pollen en herken nieuw verschenen lokale mediafiles."""
+    pad = os.path.abspath(os.path.expanduser(pad))
+    if not os.path.isdir(pad):
+        raise FileNotFoundError(pad)
+
+    gezien = set()
+    print(kleur(f"👀 Watching: {pad}", Kleuren.CYAN))
+    print(kleur("Ctrl-C om te stoppen.", Kleuren.DIM))
+
+    try:
+        while True:
+            bestanden = verzamel_media_bestanden(pad, recursief)
+            for bestand in bestanden:
+                try:
+                    stat = os.stat(bestand)
+                except OSError:
+                    continue
+
+                sleutel = (bestand, stat.st_mtime_ns, stat.st_size)
+                if sleutel in gezien:
+                    continue
+
+                gezien.add(sleutel)
+
+                print(kleur(f"\n📁 Nieuw bestand: {bestand}", Kleuren.BLUE))
+                try:
+                    await herken_fragment(
+                        bestand,
+                        "0",
+                        duur,
+                        json_output,
+                        keep_temp,
+                    )
+                except (FileNotFoundError, ValueError) as fout:
+                    print(f"❌ {fout}", file=sys.stderr)
+
+            await asyncio.sleep(1)
+
+    except KeyboardInterrupt:
+        return 130
+
+
 def maak_parser():
 
     parser = argparse.ArgumentParser(
@@ -1069,6 +1199,18 @@ def maak_parser():
         "--loop",
         action="store_true",
         help="Blijf live audio opnemen en herkennen",
+    )
+
+    parser.add_argument(
+        "--recursive",
+        action="store_true",
+        help="Verwerk alle ondersteunde mediafiles in een directory, inclusief subdirectories",
+    )
+
+    parser.add_argument(
+        "--watch",
+        metavar="DIRECTORY",
+        help="Blijf een directory bewaken en herken nieuw toegevoegde/gewijzigde mediafiles",
     )
 
     parser.add_argument(
@@ -1148,6 +1290,49 @@ async def main():
             args.keep_temp,
             args.input,
             args.device,
+        )
+        raise SystemExit(code)
+
+    if args.watch:
+        if args.duration <= 0:
+            print("--duration moet groter zijn dan 0.", file=sys.stderr)
+            raise SystemExit(2)
+        try:
+            code = await watch_modus(
+                args.watch,
+                args.recursive,
+                args.duration,
+                args.json,
+                args.keep_temp,
+            )
+        except FileNotFoundError:
+            print(f"❌ Directory niet gevonden: {args.watch}", file=sys.stderr)
+            raise SystemExit(2)
+        raise SystemExit(code)
+
+    if args.recursive:
+        if not args.mediafile:
+            parser.error("--recursive vereist een directory")
+        if is_url(args.mediafile):
+            parser.error("--recursive werkt alleen met lokale directories")
+        if not os.path.isdir(os.path.expanduser(args.mediafile)):
+            print(f"❌ Directory niet gevonden: {args.mediafile}", file=sys.stderr)
+            raise SystemExit(2)
+        if args.time is not None:
+            starttijd = parse_youtube_tijd(args.time)
+            if starttijd is None:
+                print(f"Ongeldige starttijd: {args.time}", file=sys.stderr)
+                raise SystemExit(2)
+            starttijd_arg = args.time
+        else:
+            starttijd_arg = "0"
+        code = await batch_modus(
+            args.mediafile,
+            True,
+            starttijd_arg,
+            args.duration,
+            args.json,
+            args.keep_temp,
         )
         raise SystemExit(code)
 
