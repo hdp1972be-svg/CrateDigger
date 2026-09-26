@@ -1807,6 +1807,7 @@ async def main():
         source_type="startup",
     )
     startup_waarden["SHAZAM_PROFILE"] = args.profile
+    startup_waarden["SHAZAM_PARENT_PID"] = str(os.getpid())
     voer_hook_uit(
         "startup",
         startup_waarden,
