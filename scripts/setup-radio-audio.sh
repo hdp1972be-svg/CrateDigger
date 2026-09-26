@@ -17,6 +17,7 @@ need_cmd() {
 need_cmd pactl
 need_cmd awk
 need_cmd grep
+need_cmd pgrep
 
 pactl info >/dev/null 2>&1 || die "cannot connect to the PulseAudio server"
 
@@ -38,7 +39,7 @@ if [ -z "$SOURCE" ]; then
 fi
 
 if [ -z "$SOURCE" ]; then
-    die "no Bluetooth A2DP monitor source found (set SHAZAM_SOURCE to override)"
+    die "no Bluetooth A2DP monitor source found (set SHAZAM_AUDIO_SOURCE to override)"
 fi
 
 pactl list short sources | awk -v name="$SOURCE" '$2 == name {found=1} END {exit !found}' \
@@ -87,3 +88,13 @@ pactl load-module module-loopback \
     >/dev/null || die "could not create loopback from '$SOURCE' to '$SINK_NAME'"
 
 printf '[CrateDigger] audio setup ready: %s -> %s.monitor\n' "$SOURCE" "$SINK_NAME"
+
+
+if [ "${SHAZAM_RADIO_WATCHER:-1}" = "1" ] && [ -n "${SHAZAM_PARENT_PID:-}" ] && kill -0 "$SHAZAM_PARENT_PID" 2>/dev/null; then
+    SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+    WATCHER="$SCRIPT_DIR/watch-radio-audio.sh"
+    if [ -x "$WATCHER" ] && ! pgrep -af "watch-radio-audio.sh $SHAZAM_PARENT_PID" >/dev/null 2>&1; then
+        printf '[CrateDigger] starting Bluetooth audio reconnect watcher\n'
+        nohup "$WATCHER" "$SHAZAM_PARENT_PID" >/tmp/cratedigger-radio-watch.log 2>&1 </dev/null &
+    fi
+fi
