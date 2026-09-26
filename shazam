@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from urllib.parse import parse_qs, urlsplit
 
 import aiohttp
@@ -454,10 +455,119 @@ async def herken_fragment(
             print(f"Fragment bewaard: {temp_pad}")
 
 
+
+def neem_live_audio_op(duur_sec, apparaat="default"):
+    """
+    Neem een live audiofragment op via FFmpeg's ALSA input.
+
+    Geeft het pad naar een tijdelijke 16 kHz mono WAV terug.
+    """
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError("FFmpeg is niet geïnstalleerd (nodig voor live audio).")
+
+    tmp = tempfile.NamedTemporaryFile(
+        suffix=".wav",
+        prefix="shazam-live-",
+        delete=False,
+    )
+    tmp_pad = tmp.name
+    tmp.close()
+
+    try:
+        print(f"Luisteren ({duur_sec}s)...")
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-loglevel", "error",
+                "-f", "alsa",
+                "-i", apparaat,
+                "-t", str(duur_sec),
+                "-ar", "16000",
+                "-ac", "1",
+                "-y",
+                tmp_pad,
+            ],
+            check=True,
+        )
+    except (subprocess.CalledProcessError, OSError) as e:
+        if os.path.exists(tmp_pad):
+            os.remove(tmp_pad)
+        raise RuntimeError(
+            f"ALSA audio kon niet worden opgenomen van '{apparaat}'."
+        ) from e
+
+    return tmp_pad
+
+
+async def live_modus(duur_sec, interval_sec, loop, json_output, keep_temp):
+    """
+    Neem één of herhaalde live audiofragmenten op en herken ze met Shazam.
+
+    --duration bepaalt hoe lang elke opname duurt.
+    --interval bepaalt hoeveel seconden we wachten na een herkenningspoging
+    voordat de volgende opname start.
+    """
+    while True:
+        fragment_pad = None
+
+        try:
+            fragment_pad = neem_live_audio_op(duur_sec)
+
+            code = await herken_fragment(
+                None,
+                0,
+                duur_sec,
+                json_output,
+                keep_temp,
+                fragment_pad=fragment_pad,
+            )
+
+        except RuntimeError as fout:
+            print(f"❌ {fout}", file=sys.stderr)
+            return 2
+
+        finally:
+            if (
+                fragment_pad
+                and os.path.exists(fragment_pad)
+                and not keep_temp
+            ):
+                os.remove(fragment_pad)
+            elif fragment_pad and keep_temp:
+                print(f"Fragment bewaard: {fragment_pad}")
+
+        if not loop:
+            return code
+
+        if interval_sec > 0:
+            print(f"Volgende opname over {interval_sec}s...")
+            await asyncio.sleep(interval_sec)
+
+
 def maak_parser():
 
     parser = argparse.ArgumentParser(
         description="Herken een fragment uit een mediafile met Shazam."
+    )
+
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Luister naar live audio via ALSA in plaats van een bestand/url",
+    )
+
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=5,
+        help="Wachttijd in seconden tussen live-opnames (default: 5)",
+    )
+
+    parser.add_argument(
+        "--loop",
+        action="store_true",
+        help="Blijf live audio opnemen en herkennen",
     )
 
     parser.add_argument(
@@ -511,6 +621,24 @@ def maak_parser():
 async def main():
     parser = maak_parser()
     args = parser.parse_args()
+
+    if args.live:
+        if args.interval < 0:
+            print("--interval mag niet negatief zijn.", file=sys.stderr)
+            raise SystemExit(2)
+
+        if args.duration <= 0:
+            print("--duration moet groter zijn dan 0.", file=sys.stderr)
+            raise SystemExit(2)
+
+        code = await live_modus(
+            args.duration,
+            args.interval,
+            args.loop,
+            args.json,
+            args.keep_temp,
+        )
+        raise SystemExit(code)
 
     bron = args.mediafile
     bron_is_url = is_youtube_url(bron)
