@@ -56,6 +56,16 @@ def laad_hooks_config():
     return None
 
 
+def toon_hooks_status():
+    """Toon bij startup of er een afterfound hook actief is."""
+    config = laad_hooks_config()
+
+    if config is not None and config.has_option("HOOKS", "afterfound"):
+        command = config.get("HOOKS", "afterfound").strip()
+        if command:
+            print(f"🔗 afterfound hook actief: {command}")
+
+
 def voer_afterfound_hook_uit(track):
     """Voer [HOOKS] afterfound uit na een succesvolle herkenning."""
     config = laad_hooks_config()
@@ -957,6 +967,8 @@ def maak_parser():
 async def main():
     parser = maak_parser()
     args = parser.parse_args()
+
+    toon_hooks_status()
 
     if args.live:
         if args.interval < 0:
