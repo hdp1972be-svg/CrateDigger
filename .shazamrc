@@ -1,6 +1,7 @@
 # CrateDigger configuration
 #
 # Global hooks can be overridden per profile.
+# startup runs once when CrateDigger starts, before audio capture.
 # No machine-specific paths or secrets are stored here.
 
 [HOOKS]
@@ -40,6 +41,8 @@ json = false
 [PROFILE radio]
 
 # PulseAudio system-output capture.
+# Create the sink and mirror the first available Bluetooth monitor into it.
+startup = shell exec pactl list short sinks | awk '$2 == "shazam_sink" {found=1} END {if (!found) system("pactl load-module module-null-sink sink_name=shazam_sink sink_properties=device.description=ShazamSink")}'; source="$(pactl list short sources | awk '$2 ~ /^bluez_sink\\..*\\.monitor$/ {print $2; exit}')"; [ -z "$source" ] || pactl list short modules | grep -Fq "source=$source" || pactl load-module module-loopback source="$source" sink=shazam_sink latency_msec=20
 live = true
 input = pulse
 device = shazam_sink.monitor
