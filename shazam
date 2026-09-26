@@ -567,7 +567,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
     return tmp_pad, not any_signal
 
 
-async def live_modus(duur_sec, interval_sec, loop, json_output, keep_temp, invoer, apparaat):
+async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_temp, invoer, apparaat):
     """
     Neem één of herhaalde live audiofragmenten op en herken ze met Shazam.
 
@@ -619,6 +619,10 @@ async def live_modus(duur_sec, interval_sec, loop, json_output, keep_temp, invoe
             print(f"Volgende opname over {interval_sec}s...")
             await asyncio.sleep(interval_sec)
 
+        if code == 0 and delay_sec > 0:
+            print(f"Delay na gevonden nummer: {delay_sec}s...")
+            await asyncio.sleep(delay_sec)
+
 
 def maak_parser():
 
@@ -637,6 +641,13 @@ def maak_parser():
         type=int,
         default=5,
         help="Wachttijd in seconden tussen live-opnames (default: 5)",
+    )
+
+    parser.add_argument(
+        "--delay",
+        type=int,
+        default=0,
+        help="Wachttijd in seconden na een gevonden nummer (default: 0)",
     )
 
     parser.add_argument(
@@ -720,9 +731,14 @@ async def main():
             print("--duration moet groter zijn dan 0.", file=sys.stderr)
             raise SystemExit(2)
 
+        if args.delay < 0:
+            print("--delay mag niet negatief zijn.", file=sys.stderr)
+            raise SystemExit(2)
+
         code = await live_modus(
             args.duration,
             args.interval,
+            args.delay,
             args.loop,
             args.json,
             args.keep_temp,
