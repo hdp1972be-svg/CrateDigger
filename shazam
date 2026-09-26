@@ -430,8 +430,11 @@ def bewaar_nomatch_fragment(temp_pad, profile_name=None):
     os.close(fd)
 
     try:
-        os.replace(temp_pad, doelpad)
-    except OSError:
+        # De opname staat doorgaans in /tmp, terwijl nomatch_dir op een
+        # andere filesystem/mount kan staan. os.replace() faalt dan met
+        # EXDEV; shutil.move() kan in dat geval veilig kopiëren + verwijderen.
+        shutil.move(temp_pad, doelpad)
+    except (OSError, shutil.Error):
         try:
             os.remove(doelpad)
         except OSError:
