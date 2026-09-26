@@ -16,6 +16,8 @@ I built this because I couldn't find another small CLI tool that combines this p
 - 🦊 Use Firefox cookies through yt-dlp, so age/login/region-gated videos can work when your browser session has access
 - 🤖 Human-readable output or machine-readable JSON
 - 🧹 Temporary downloaded audio is cleaned up automatically
+- 🎙️ Listen to live audio through ALSA
+- 🔁 Optionally repeat live recognition with a configurable interval
 
 ## Requirements
 
@@ -166,7 +168,7 @@ The important distinction is that **FFmpeg and yt-dlp are external executables**
 ./shazam.py 'https://www.youtube.com/watch?v=VIDEO_ID'
 ```
 
-The default is to analyze a **15-second** fragment.
+The default is to analyze a **25-second** fragment.
 
 ### Start at a timestamp
 
@@ -200,6 +202,52 @@ The same tool can work on a local audio/video file:
 
 The media file is not downloaded; the selected fragment is extracted locally.
 
+### Live audio
+
+Use `--live` to listen to an ALSA input instead of supplying a file or URL:
+
+```bash
+./shazam --live
+```
+
+By default, one **25-second** capture is made and sent to Shazam.
+
+The same duration option controls the capture length:
+
+```bash
+./shazam --live -d 15
+```
+
+With `--loop`, the tool keeps taking new captures. `--interval` controls the wait between captures:
+
+```bash
+./shazam --live -d 15 --interval 5 --loop
+```
+
+This gives you:
+
+```text
+capture 15s
+    ↓
+Shazam
+    ↓
+wait 5s
+    ↓
+capture 15s
+    ↓
+Shazam
+    ↓
+...
+```
+
+The ALSA device can be selected explicitly when `default` is not the desired input:
+
+```bash
+./shazam --live --device hw:1
+```
+
+Press `Ctrl-C` to stop a looping session.
+
 ### JSON output
 
 For scripts and other automation:
@@ -223,8 +271,9 @@ With no match, JSON output is:
 ## CLI reference
 
 ```
-usage: shazam.py [-h] [-t TIME] [-d DURATION] [--json] [--keep-temp]
-                 MEDIAFILE_OR_YOUTUBE_URL
+usage: shazam [-h] [-t TIME] [-d DURATION] [--json] [--keep-temp]
+              [--live] [--interval INTERVAL] [--device DEVICE] [--loop]
+              [MEDIAFILE_OR_YOUTUBE_URL]
 
 positional arguments:
   MEDIAFILE_OR_YOUTUBE_URL
@@ -237,6 +286,10 @@ options:
                         Number of seconds to analyze (default: 15)
   --json                Output recognition result as JSON
   --keep-temp           Keep the temporary downloaded audio
+  --live                Listen to live audio through ALSA
+  --interval SECONDS    Wait between live captures (default: 5)
+  --device DEVICE       ALSA input device (default: default)
+  --loop                Repeat live captures until interrupted
 ```
 
 ### `-t, --time`
@@ -260,7 +313,7 @@ Controls the length of the audio fragment sent for recognition.
 Default:
 
 ```text
-15 seconds
+25 seconds
 ```
 
 Longer fragments can be useful when the music is quiet or the selected point contains speech/noise.
