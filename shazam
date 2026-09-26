@@ -678,7 +678,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
                                 verwerkte_bytes / (sample_rate * channels * sample_width),
                             )
                             print(
-                                f"\\rRecording sec {int(huidige_sec):>2}/{duur_sec}  "
+                                f"\rRecording sec {int(huidige_sec):>2}/{duur_sec}  "
                                 f"[{meter}] {rms_text}  peak {peak_text} dBFS",
                                 end="",
                                 flush=True,
@@ -695,7 +695,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
         if returncode != 0:
             raise RuntimeError(
                 f"{invoer} audio kon niet worden opgenomen van "
-                f"'{apparaat}': {stderr or 'ffmpeg fout'}"
+                f"'{apparaat}': {stderr or f'ffmpeg fout (exit {returncode})'}"
             )
 
     except (OSError, wave.Error) as e:
