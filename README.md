@@ -31,6 +31,9 @@ Online-source support is provided by **yt-dlp**, so the exact URLs that work dep
 - 🤖 Human-readable output or machine-readable JSON
 - 🧹 Temporary downloaded audio is cleaned up automatically
 - 🔁 Optionally repeat live recognition with a configurable interval
+- 📂 Batch-recognize all supported media files in a directory with `--recursive`
+- 👀 Watch a directory for new or changed media files with `--watch`
+- 📊 Expose Shazam's recognition score as `confidence` when provided
 - ⏳ Add an additional delay after a successful recognition
 - 🔗 Optional `afterfound` shell hooks for automation
 
@@ -108,6 +111,32 @@ The `--time` option accepts seconds, `MM:SS`, or `HH:MM:SS`. If the URL contains
 ```
 
 Local media bypasses yt-dlp.
+
+### Recursive batch mode
+
+Recognize every supported media file in a directory:
+
+```bash
+./shazam --recursive ~/Music/unknown
+```
+
+Subdirectories are included automatically by `--recursive`.
+
+### Watch mode
+
+Watch a directory continuously and recognize newly appearing or changed media files:
+
+```bash
+./shazam --watch ~/Music/incoming
+```
+
+Combine it with `--recursive` to watch subdirectories too:
+
+```bash
+./shazam --watch ~/Music/incoming --recursive
+```
+
+Press `Ctrl-C` to stop watching.
 
 ### Live audio
 
@@ -238,6 +267,13 @@ actual audio crate
 CrateDigger does not need to know how you ultimately acquire or organize the audio. The hook is just the bridge.
 
 That's also a useful example of why `afterfound` is deliberately a shell hook rather than hard-coded Taskwarrior integration: **Unix plumbing stays Unix plumbing.**
+
+The recognition score is also available to hooks when Shazam provides one:
+
+- `%confidence` — recognition score
+- `$SHAZAM_CONFIDENCE` — the same value as an environment variable
+
+JSON output includes the same value as `confidence` when available.
 
 ### JSON and CSV pipelines
 
@@ -377,13 +413,21 @@ Hook failures do not invalidate an otherwise successful Shazam recognition; a no
 Successful recognition returns:
 
 ```json
-{"title":"Example Song","artist":"Example Artist"}
+{
+  "status": "found",
+  "title": "Example Song",
+  "artist": "Example Artist",
+  "genre": "Dance",
+  "confidence": 0.94
+}
 ```
+
+The `confidence` field is included only when Shazam supplies a score.
 
 With no match:
 
 ```json
-{}
+{"status":"no_match"}
 ```
 
 ## How it works
