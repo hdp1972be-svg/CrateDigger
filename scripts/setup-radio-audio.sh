@@ -34,12 +34,38 @@ pactl list short sources | awk -v name="$MONITOR" '$2 == name {found=1} END {exi
     || die "sink monitor '$MONITOR' does not exist"
 
 SOURCE="${SHAZAM_AUDIO_SOURCE:-}"
+SOURCE_KIND="configured"
+
 if [ -z "$SOURCE" ]; then
     SOURCE="$(pactl list short sources | awk '$2 ~ /^bluez_sink\..*\.a2dp_sink\.monitor$/ {print $2; exit}')"
+    if [ -n "$SOURCE" ]; then
+        SOURCE_KIND="Bluetooth"
+    fi
 fi
 
 if [ -z "$SOURCE" ]; then
-    die "no Bluetooth A2DP monitor source found (set SHAZAM_AUDIO_SOURCE to override)"
+    FALLBACK_SOURCE="${SHAZAM_AUDIO_FALLBACK_SOURCE:-}"
+    if [ -z "$FALLBACK_SOURCE" ]; then
+        DEFAULT_SINK="$(pactl get-default-sink 2>/dev/null || true)"
+        if [ -n "$DEFAULT_SINK" ] && [ "$DEFAULT_SINK" != "$SINK_NAME" ]; then
+            FALLBACK_SOURCE="${DEFAULT_SINK}.monitor"
+        fi
+    fi
+
+    if [ -z "$FALLBACK_SOURCE" ]; then
+        FALLBACK_SOURCE="$(pactl list short sources | awk -v sink="$SINK_NAME" '$2 ~ /\.monitor$/ && $2 != sink ".monitor" {print $2; exit}')"
+    fi
+
+    if [ -n "$FALLBACK_SOURCE" ] && \
+       pactl list short sources | awk -v name="$FALLBACK_SOURCE" '$2 == name {found=1} END {exit !found}'
+    then
+        SOURCE="$FALLBACK_SOURCE"
+        SOURCE_KIND="fallback"
+    fi
+fi
+
+if [ -z "$SOURCE" ]; then
+    die "no Bluetooth A2DP monitor source found and no fallback PulseAudio monitor is available"
 fi
 
 pactl list short sources | awk -v name="$SOURCE" '$2 == name {found=1} END {exit !found}' \
@@ -60,8 +86,8 @@ while read -r MODULE_ID MODULE_NAME MODULE_ARGS; do
     esac
 done < <(pactl list short modules)
 
-printf '[CrateDigger] creating loopback: %s -> %s (%sms)\n' \
-    "$SOURCE" "$SINK_NAME" "$LATENCY_MS"
+printf '[CrateDigger] creating loopback: %s -> %s (%sms, %s)\n' \
+    "$SOURCE" "$SINK_NAME" "$LATENCY_MS" "$SOURCE_KIND"
 
 pactl load-module module-loopback \
     source="$SOURCE" \
