@@ -16,7 +16,7 @@ I built this because I couldn't find another small CLI tool that combines this p
 - 🦊 Use Firefox cookies through yt-dlp, so age/login/region-gated videos can work when your browser session has access
 - 🤖 Human-readable output or machine-readable JSON
 - 🧹 Temporary downloaded audio is cleaned up automatically
-- 🎙️ Listen to live audio through ALSA
+- 🎙️ Listen to live audio through ALSA, PulseAudio, or JACK
 - 🔁 Optionally repeat live recognition with a configurable interval
 
 ## Requirements
@@ -204,10 +204,18 @@ The media file is not downloaded; the selected fragment is extracted locally.
 
 ### Live audio
 
-Use `--live` to listen to an ALSA input instead of supplying a file or URL:
+Use `--live` to listen to a system audio input instead of supplying a file or URL. FFmpeg provides the capture backend, with support for ALSA, PulseAudio, and JACK:
 
 ```bash
 ./shazam --live
+```
+
+Select the backend with `--input`:
+
+```bash
+./shazam --live --input alsa
+./shazam --live --input pulse
+./shazam --live --input jack
 ```
 
 By default, one **25-second** capture is made and sent to Shazam.
@@ -240,10 +248,12 @@ Shazam
 ...
 ```
 
-The ALSA device can be selected explicitly when `default` is not the desired input:
+The input source can be selected explicitly with `--device`. The exact name depends on the backend:
 
 ```bash
-./shazam --live --device hw:1
+./shazam --live --input alsa --device hw:1
+./shazam --live --input pulse --device default
+./shazam --live --input jack --device system:capture_1
 ```
 
 Press `Ctrl-C` to stop a looping session.
@@ -286,9 +296,11 @@ options:
                         Number of seconds to analyze (default: 15)
   --json                Output recognition result as JSON
   --keep-temp           Keep the temporary downloaded audio
-  --live                Listen to live audio through ALSA
+  --live                Listen to live audio
+  --input {alsa,pulse,jack}
+                        Live audio backend (default: alsa)
   --interval SECONDS    Wait between live captures (default: 5)
-  --device DEVICE       ALSA input device (default: default)
+  --device DEVICE       Input source (default: default)
   --loop                Repeat live captures until interrupted
 ```
 
