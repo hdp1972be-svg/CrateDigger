@@ -330,6 +330,24 @@ def _shazam_jaar(track):
             if sleutel in album:
                 kandidaten.append(album.get(sleutel))
 
+    # Shazam commonly exposes the release year under
+    # sections[].metadata[] as {"title": "Released", "text": "2020"}.
+    sections = track.get("sections")
+    if isinstance(sections, list):
+        for section in sections:
+            if not isinstance(section, dict):
+                continue
+            metadata = section.get("metadata")
+            if not isinstance(metadata, list):
+                continue
+            for item in metadata:
+                if not isinstance(item, dict):
+                    continue
+                titel = str(item.get("title") or "").strip().lower()
+                tekst = item.get("text")
+                if titel == "released" or "release" in titel:
+                    kandidaten.append(tekst)
+
     for waarde in kandidaten:
         match = re.search(r"\b(19|20)\d{2}\b", str(waarde or ""))
         if match:
@@ -435,7 +453,7 @@ def voer_hook_uit(
     ):
         command = command.replace(
             f"%{placeholder}",
-            f'"$' + '{variable}"',
+            f'"${variable}"',
         )
 
     omgeving = os.environ.copy()
