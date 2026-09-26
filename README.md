@@ -85,6 +85,33 @@ Local media bypasses yt-dlp.
 
 During live mode, `p` pauses/resumes and `n` discards the current cycle and starts a fresh recording. A real-time PCM level meter is displayed. Completely silent captures are not sent to Shazam.
 
+### Live input options
+
+The `--input` option selects the FFmpeg capture backend:
+
+| Backend | `--input` | `--device` example | Typical use |
+|---|---|---|---|
+| ALSA | `alsa` | `default` or `hw:1,0` | Direct sound-card / ALSA capture |
+| PulseAudio | `pulse` | `default`, `shazam_sink.monitor` | Desktop audio, Bluetooth monitors, Pulse sources |
+| JACK | `jack` | JACK input/client name | JACK audio graph |
+
+Examples:
+
+```bash
+# ALSA
+./shazam --live --input alsa --device default
+./shazam --live --input alsa --device hw:1,0
+
+# PulseAudio
+./shazam --live --input pulse --device default
+./shazam --live --input pulse --device shazam_sink.monitor
+
+# JACK
+./shazam --live --input jack --device system:capture_1
+```
+
+`--device` is passed directly to FFmpeg as the input device/source name. The exact names available therefore depend on the audio system and its current configuration. If you are unsure what to use, inspect the devices/sources with the tools provided by your audio stack (for example `pactl list short sources` for PulseAudio).
+
 #### PulseAudio system-output capture
 
 A convenient way to feed normal system audio into Shazam is to create a PulseAudio null sink:
