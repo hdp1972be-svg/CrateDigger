@@ -7,6 +7,8 @@
 [HOOKS]
 
 # Add every newly recognised track to the Taskwarrior music queue.
+# All scalar Shazam fields are also available as $SHAZAM_* variables and
+# matching lowercase %placeholders. See README.md for the flattening rules.
 afterfound = shell exec task add "%artist %record %id %date" +MUSIC
 
 # Useful in watch/live mode.
@@ -61,7 +63,8 @@ nomatch = shell exec true
 
 [PROFILE json]
 
-# Simple machine-oriented output hook.
+# Machine-oriented output hook. Full Shazam metadata is available
+# through $SHAZAM_JSON / $SHAZAM_TRACK_JSON as well as flattened variables.
 json = true
 duration = 25
-afterfound = shell exec printf '%s\t%s\t%s\t%s\n' "$SHAZAM_ARTIST" "$SHAZAM_RECORD" "$SHAZAM_ID" "$SHAZAM_CONFIDENCE"
+afterfound = shell exec printf '%s\t%s\t%s\t%s\t%s\n' "$SHAZAM_ARTIST" "$SHAZAM_RECORD" "$SHAZAM_YEAR" "$SHAZAM_GENRES_PRIMARY" "$SHAZAM_CONFIDENCE"
