@@ -17,6 +17,8 @@ import tty
 import tempfile
 import time
 import wave
+import math
+import array
 from urllib.parse import parse_qs, urlsplit
 
 import aiohttp
@@ -454,7 +456,6 @@ async def herken_fragment(
 
 
 
-
 def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
     """
     Neem live audio op en controleer het PCM-signaal tijdens de opname.
@@ -570,6 +571,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
             )
             verwerkte_bytes = 0
             vorige_sec = 0
+            laatste_meter_update = 0.0
 
             while True:
                 # Verwerk alle reeds ingedrukte toetsen zonder de
@@ -608,19 +610,67 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
                     wav.writeframes(data)
                     verwerkte_bytes += len(data)
 
-                    huidige_sec = min(
-                        duur_sec,
-                        verwerkte_bytes / (sample_rate * channels * sample_width),
-                    )
-                    huidige_sec_int = int(huidige_sec)
-
-                    if huidige_sec_int > vorige_sec:
-                        vorige_sec = huidige_sec_int
-                        print(
-                            f"\rRecording sec {vorige_sec}/{duur_sec}",
-                            end="",
-                            flush=True,
+                    samples = array.array("h")
+                    samples.frombytes(data)
+                    if samples:
+                        rms = math.sqrt(
+                            sum(sample * sample for sample in samples)
+                            / len(samples)
                         )
+                        peak = max(abs(sample) for sample in samples)
+
+                        if rms > 0:
+                            dbfs = 20 * math.log10(rms / 32768.0)
+                        else:
+                            dbfs = -float("inf")
+
+                        if peak > 0:
+                            peak_dbfs = 20 * math.log10(peak / 32768.0)
+                        else:
+                            peak_dbfs = -float("inf")
+
+                        now = time.monotonic()
+                        if now - laatste_meter_update >= 0.5:
+                            laatste_meter_update = now
+
+                            meter_db = max(-60.0, min(0.0, dbfs))
+                            meter_breedte = 20
+                            gevuld = int(
+                                ((meter_db + 60.0) / 60.0)
+                                * meter_breedte
+                            )
+                            meter = (
+                                "█" * gevuld
+                                + "░" * (meter_breedte - gevuld)
+                            )
+
+                            rms_text = (
+                                f"{dbfs:6.1f} dBFS"
+                                if math.isfinite(dbfs)
+                                else "  -inf dBFS"
+                            )
+                            peak_text = (
+                                f"{peak_dbfs:6.1f}"
+                                if math.isfinite(peak_dbfs)
+                                else "  -inf"
+                            )
+
+                            huidige_sec = min(
+                                duur_sec,
+                                verwerkte_bytes
+                                / (sample_rate * channels * sample_width),
+                            )
+                            print(
+                                f"\rRecording sec "
+                                f"{int(huidige_sec):>2}/{duur_sec}  "
+                                f"[{meter}] {rms_text}  peak {peak_text} dBFS",
+                                end="",
+                                flush=True,
+                            )
+
+                elif paused:
+                    # Keep the input queue responsive while FFmpeg is stopped.
+                    continue
 
             print()
 
