@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import wave
 from urllib.parse import parse_qs, urlsplit
 
 import aiohttp
@@ -447,6 +448,24 @@ async def herken_fragment(
 
 
 
+
+def is_stille_wav(pad):
+    """
+    True als een opgenomen WAV-bestand uitsluitend nul-samples bevat.
+
+    Dit is bewust een harde nultest: normale zeer stille audio mag niet als
+    foutieve input worden aangemerkt. Een volledig nul signaal wijst wel vaak
+    op een verkeerde capture device/source.
+    """
+    try:
+        with wave.open(pad, "rb") as wav:
+            frames = wav.readframes(wav.getnframes())
+        return not any(frames)
+    except (OSError, wave.Error):
+        return False
+
+
+
 def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
     """
     Neem een live audiofragment op via een FFmpeg audio-input.
@@ -518,6 +537,12 @@ async def live_modus(duur_sec, interval_sec, loop, json_output, keep_temp, invoe
 
         try:
             fragment_pad = neem_live_audio_op(duur_sec, invoer, apparaat)
+
+            if is_stille_wav(fragment_pad):
+                print(
+                    "⚠️  WARNING: captured audio contains only silence "
+                    "(all samples are zero). Possible wrong input device/source."
+                )
 
             code = await herken_fragment(
                 None,
