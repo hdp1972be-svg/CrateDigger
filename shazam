@@ -369,7 +369,7 @@ def voer_hook_uit(
         ("%error", "SHAZAM_ERROR"),
         ("%exitcode", "SHAZAM_EXIT_CODE"),
     ):
-        command = command.replace(placeholder, " + variable + ")
+        command = command.replace(placeholder, f'"${variable}"')
 
     omgeving = os.environ.copy()
     omgeving.update(waarden)
