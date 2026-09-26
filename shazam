@@ -1257,7 +1257,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
     return tmp_pad, not any_signal, reset_requested, besturing.quit_requested if besturing is not None else False
 
 
-async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_temp, invoer, apparaat, profile_name=None):
+async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_temp, debug, invoer, apparaat, profile_name=None):
     """
     Neem één of herhaalde live audiofragmenten op en herken ze met Shazam.
 
@@ -1331,10 +1331,15 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
                     fragment_pad
                     and os.path.exists(fragment_pad)
                     and not keep_temp
+                    and not debug
                 ):
                     os.remove(fragment_pad)
-                elif fragment_pad and keep_temp:
-                    print(f"Fragment bewaard: {fragment_pad}")
+                elif fragment_pad and (keep_temp or debug):
+                    print(
+                        f"Debugfragment bewaard: {fragment_pad}"
+                        if debug
+                        else f"Fragment bewaard: {fragment_pad}"
+                    )
 
             if not loop:
                 return code
@@ -1484,6 +1489,7 @@ DEFAULT_PROFILE = {
     "loop": False,
     "json": False,
     "keep_temp": False,
+    "debug": False,
     "live": False,
     "recursive": False,
     "startup": "",
@@ -1639,6 +1645,12 @@ def maak_parser():
         ),
     )
 
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Bewaar live-opnames in /tmp in plaats van ze na herkenning te verwijderen",
+    )
+
     return parser
 
 
@@ -1697,6 +1709,7 @@ async def main():
             args.loop,
             args.json,
             args.keep_temp,
+            args.debug,
             args.input,
             args.device,
             profile_name=args.profile,
