@@ -649,11 +649,15 @@ class LiveBesturing:
                 print("\n⏸ Paused — press 'p' to continue")
 
     def wacht(self, seconden):
-        """Wacht alleen zolang niet gepauzeerd; 'p' werkt tijdens de wacht."""
+        """Wacht met p-pauze en n-reset. Geeft True terug als n werd ingedrukt."""
         einde = time.monotonic() + seconden
 
         while True:
             self.verwerk_toetsen()
+
+            if self.reset_requested:
+                self.reset_requested = False
+                return True
 
             if self.paused:
                 time.sleep(0.1)
@@ -661,7 +665,7 @@ class LiveBesturing:
 
             resterend = einde - time.monotonic()
             if resterend <= 0:
-                return
+                return False
 
             time.sleep(min(0.1, resterend))
 
@@ -896,11 +900,13 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
 
             if interval_sec > 0:
                 print(f"Volgende opname over {interval_sec}s...")
-                besturing.wacht(interval_sec)
+                if besturing.wacht(interval_sec):
+                    continue
 
             if code == 0 and delay_sec > 0:
                 print(f"Delay na gevonden nummer: {delay_sec}s...")
-                besturing.wacht(delay_sec)
+                if besturing.wacht(delay_sec):
+                    continue
     finally:
         besturing.stop()
 
