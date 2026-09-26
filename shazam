@@ -99,6 +99,8 @@ def voer_afterfound_hook_uit(track):
     omgeving = os.environ.copy()
     omgeving.update(waarden)
 
+    print("🔗 Executing afterfound hook...")
+
     try:
         resultaat = subprocess.run(
             command,
