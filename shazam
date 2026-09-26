@@ -750,21 +750,31 @@ class LiveBesturing:
             time.sleep(min(0.1, resterend))
 
     def stop(self):
-        if self.terminal_fd is not None:
-            # Gooi toetsen weg die tijdens Shazam/het laatste moment zijn
-            # ingedrukt; anders kunnen ze in de shell terechtkomen.
-            termios.tcflush(self.terminal_fd, termios.TCIFLUSH)
+        if self.terminal_fd is None:
+            return
 
+        fd = self.terminal_fd
+
+        try:
+            # Herstel de oorspronkelijke tty-instellingen eerst. Dit moet ook
+            # gebeuren wanneer Ctrl-C midden in een opname/wachttijd komt.
             if self.terminal_settings is not None:
                 termios.tcsetattr(
-                    self.terminal_fd,
+                    fd,
                     termios.TCSADRAIN,
                     self.terminal_settings,
                 )
 
-        if self.terminal_file is not None:
-            self.terminal_file.close()
-            self.terminal_file = None
+            # Gooi toetsen weg die tijdens het stoppen zijn ingedrukt; anders
+            # kunnen ze in de shell terechtkomen.
+            termios.tcflush(fd, termios.TCIFLUSH)
+        finally:
+            if self.terminal_file is not None:
+                self.terminal_file.close()
+                self.terminal_file = None
+
+            self.terminal_fd = None
+            self.terminal_settings = None
 
 
 def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=None):
@@ -937,6 +947,17 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
     besturing = LiveBesturing()
     besturing.start()
 
+    # Ctrl-C must restore the tty immediately. Depending on where asyncio or
+    # ffmpeg is interrupted, relying only on the outer KeyboardInterrupt
+    # handler can otherwise leave the terminal in cbreak/noecho mode.
+    vorige_sigint = signal.getsignal(signal.SIGINT)
+
+    def herstel_tty_bij_sigint(signum, frame):
+        besturing.stop()
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGINT, herstel_tty_bij_sigint)
+
     try:
         while True:
             fragment_pad = None
@@ -1002,6 +1023,7 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
                     continue
     finally:
         besturing.stop()
+        signal.signal(signal.SIGINT, vorige_sigint)
 
 
 def maak_parser():
