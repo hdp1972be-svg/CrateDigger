@@ -69,7 +69,8 @@ Then run:
 
 For later sessions:
 
-```cd youtube-shazam
+```bash
+cd youtube-shazam
 . .venv/bin/activate
 ./shazam ...
 ```
@@ -237,6 +238,44 @@ actual audio crate
 CrateDigger does not need to know how you ultimately acquire or organize the audio. The hook is just the bridge.
 
 That's also a useful example of why `afterfound` is deliberately a shell hook rather than hard-coded Taskwarrior integration: **Unix plumbing stays Unix plumbing.**
+
+### Other examples: SQL, databases, HTTP, or your own script
+
+The hook is intentionally **storage-agnostic**. Taskwarrior is just one possible consumer. Since the hook is a normal shell command, you can feed recognition results into SQLite, PostgreSQL, another CLI database tool, an HTTP endpoint, or a script of your own.
+
+For example, a simple SQLite ingest could look like:
+
+```bash
+sqlite3 music.db \
+  "INSERT INTO tracks (artist,title,shazam_id,found_at) \
+   VALUES ('$SHAZAM_ARTIST','$SHAZAM_RECORD','$SHAZAM_ID','$SHAZAM_DATE');"
+```
+
+PostgreSQL works just as naturally:
+
+```bash
+psql music \
+  -c "INSERT INTO tracks (artist,title,shazam_id,found_at) \
+      VALUES ('$SHAZAM_ARTIST','$SHAZAM_RECORD','$SHAZAM_ID','$SHAZAM_DATE');"
+```
+
+Or send the result to another local or network service:
+
+```bash
+curl -X POST http://localhost:8080/tracks \
+  -d "artist=$SHAZAM_ARTIST&title=$SHAZAM_RECORD&id=$SHAZAM_ID"
+```
+
+For anything more involved, point the hook at your own script:
+
+```ini
+[HOOKS]
+afterfound = shell exec ~/.local/bin/cratedigger-found
+```
+
+A script can then decide whether to update Taskwarrior, ingest SQL, call an API, download media, or do several things at once.
+
+For database ingestion, prefer parameterized/prepared statements in your own application code rather than constructing SQL from shell-expanded recognition strings. Track titles and artist names are arbitrary external data and can contain quotes or other characters that are significant to SQL.
 
 ### Source URL and YouTube ID
 
