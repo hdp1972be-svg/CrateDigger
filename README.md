@@ -178,6 +178,32 @@ Then:
 ./shazam --live --input pulse --device shazam_sink.monitor --loop
 ```
 
+## Qt wrapper
+
+The CLI remains the primary interface, but CrateDigger also includes a thin **PyQt6** wrapper that puts the existing CLI inside a Qt window.
+
+The wrapper does **not** reimplement or modify the recognition logic in `./shazam`. It runs the unchanged CLI in a pseudo-terminal (PTY), so the CLI still sees a real terminal and keeps its existing ANSI colours, progress updates, and live `p` / `n` controls.
+
+Install PyQt6 if you want the wrapper:
+
+```bash
+python -m pip install PyQt6
+```
+
+Run it exactly like the CLI:
+
+```bash
+./cratedigger-qt.py --live --input pulse --device shazam_sink.monitor --loop
+```
+
+You can also pass a URL or any other normal CrateDigger arguments:
+
+```bash
+./cratedigger-qt.py 'https://www.youtube.com/watch?v=VIDEO_ID' -t 10:00
+```
+
+The Qt window is deliberately just a terminal wrapper: the CLI remains the source of truth.
+
 ## `afterfound` hooks
 
 Recognized tracks can trigger an optional shell command through a `.shazamrc` configuration file.
