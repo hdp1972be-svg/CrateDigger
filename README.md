@@ -44,6 +44,38 @@ Online-source support is provided by **yt-dlp**, so the exact URLs that work dep
   - `pydub`
   - `shazamio`
 
+### Easy install on Ubuntu/Debian
+
+The simplest setup is a small virtual environment:
+
+```bash
+sudo apt install python3 python3-venv ffmpeg
+
+git clone https://github.com/hdp1972be-svg/youtube-shazam.git
+cd youtube-shazam
+
+python3 -m venv .venv
+. .venv/bin/activate
+
+python -m pip install --upgrade pip
+python -m pip install yt-dlp aiohttp pydub shazamio
+```
+
+Then run:
+
+```bash
+./shazam 'https://www.youtube.com/watch?v=VIDEO_ID'
+```
+
+For later sessions:
+
+```cd youtube-shazam
+. .venv/bin/activate
+./shazam ...
+```
+
+If you only use local files, `yt-dlp` is not required. ALSA is available through the normal Linux audio stack; PulseAudio and JACK require their respective audio systems to be installed/configured separately.
+
 ## Usage
 
 ### Online URLs
