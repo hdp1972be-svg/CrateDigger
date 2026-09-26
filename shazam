@@ -124,6 +124,43 @@ def toon_profiles():
             return hook_command(feature, profile_name=naam)
         return str(waarden[naam][feature])
 
+    # Show the global [HOOKS] defaults separately. These are distinct from
+    # profile-specific overrides shown in the profile tables below.
+    hook_defaults = [
+        (event, config.get("HOOKS", event).strip()
+         if config.has_option("HOOKS", event) else "")
+        for event in HOOK_EVENTS
+    ]
+
+    print("[HOOKS] DEFAULTS")
+    hook_label_width = max(len("HOOK"), *(len(event) for event, _ in hook_defaults))
+    hook_value_width = max(
+        12,
+        min(
+            100,
+            shutil.get_terminal_size(fallback=(120, 24)).columns
+            - hook_label_width - 3,
+        ),
+    )
+
+    def wrap_hook(value, width):
+        value = str(value)
+        if not value:
+            return [""]
+        return [value[i:i + width] for i in range(0, len(value), width)]
+
+    print(f"{'HOOK'.ljust(hook_label_width)} | {'COMMAND'.ljust(hook_value_width)}")
+    print(f"{'-' * hook_label_width}-+-{'-' * hook_value_width}")
+    for event, command in hook_defaults:
+        wrapped = wrap_hook(command, hook_value_width)
+        for index, line in enumerate(wrapped):
+            print(
+                f"{event.ljust(hook_label_width) if index == 0 else ' ' * hook_label_width}"
+                f" | {line.ljust(hook_value_width)}"
+            )
+
+    print()
+
     terminal_width = shutil.get_terminal_size(fallback=(120, 24)).columns
     feature_width = max(len("FEATURE"), max(len(x) for x in features))
 
