@@ -39,6 +39,7 @@ Online-source support is provided by **yt-dlp**, so the exact URLs that work dep
 - ⚙️ Named profiles with profile-specific settings and hook overrides
 - 📋 Inspect available profiles with `--list-profiles`
 - 🐛 Debug live captures with `--debug`, keeping temporary WAV fragments in `/tmp`
+- 🔌 Automatically rebuild the PulseAudio/Bluetooth loopback after audio-device reconnects
 
 ## Requirements
 
@@ -208,7 +209,7 @@ Route the desired monitor into the null sink:
 pactl load-module module-loopback \
     source=bluez_sink.CA_D5_01_BE_BA_6C.a2dp_sink.monitor \
     sink=shazam_sink \
-    latency_msec=20
+    latency_msec=100
 ```
 
 The BlueZ monitor name above is an example; the actual name depends on the active device.
@@ -354,7 +355,7 @@ JSON output includes the same value as `confidence` when available.
 
 ### Hooks
 
-Hooks are configured in `.shazamrc` under `[HOOKS]`. The four lifecycle events are:
+Hooks are configured in `.shazamrc` under `[HOOKS]`. The five lifecycle events are:
 
 - `beforefound` — runs after Shazam has identified a track, immediately before `afterfound`
 - `afterfound` — runs after a new recognition; repeated identical consecutive matches are suppressed
@@ -446,7 +447,7 @@ CrateDigger includes `scripts/setup-radio-audio.sh` for preparing a PulseAudio c
 5. Reuses an existing matching loopback when its latency is already correct.
 6. Recreates the matching loopback when its latency differs.
 
-The 100 ms default is intentional: lower loopback latency can produce unstable/noisy capture on some PulseAudio/Bluetooth setups even when direct recording from the Bluetooth monitor is clean.
+The 100 ms default is intentional: lower loopback latency can produce unstable/noisy capture on some PulseAudio/Bluetooth setups even when direct recording from the Bluetooth monitor is clean. The setup script also removes stale loopbacks feeding `shazam_sink` before creating the current route, so a Bluetooth reconnect does not leave an old monitor connected.
 
 An automatic radio profile can therefore be as simple as:
 
