@@ -84,6 +84,13 @@ def laad_hooks_config():
     return None
 
 
+def toon_profile_status(naam, waarden):
+    """Toon bij startup welk profiel en welke effectieve profielwaarden actief zijn."""
+    print(kleur(f"⚙️  Profile: {naam}", Kleuren.CYAN))
+    for sleutel, waarde in waarden.items():
+        print(f"   {sleutel} = {waarde}")
+
+
 def toon_hooks_status():
     """Toon bij startup of er een afterfound hook actief is."""
     config = laad_hooks_config()
@@ -1341,9 +1348,18 @@ def maak_parser():
 async def main():
     parser = maak_parser()
     profiel_args, _ = parser.parse_known_args()
-    parser.set_defaults(**laad_profile_waarden(profiel_args.profile))
+    profiel_waarden = laad_profile_waarden(profiel_args.profile)
+    parser.set_defaults(**profiel_waarden)
     args = parser.parse_args()
 
+    # Toon het profiel met de effectieve waarden; expliciete CLI-opties
+    # worden na het laden van het profiel door argparse als override toegepast.
+    effectieve_waarden = {
+        sleutel: getattr(args, sleutel)
+        for sleutel in DEFAULT_PROFILE
+        if hasattr(args, sleutel)
+    }
+    toon_profile_status(args.profile, effectieve_waarden)
     toon_hooks_status()
 
     if args.live:
