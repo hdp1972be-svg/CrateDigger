@@ -69,7 +69,28 @@ def toon_hooks_status():
 _laatste_afterfound = None
 
 
-def voer_afterfound_hook_uit(track):
+def youtube_id_uit_url(url):
+    """Haal een YouTube-video-ID uit een URL; None voor andere sites."""
+    if not url:
+        return ""
+    try:
+        gesplitst = urlsplit(url)
+    except ValueError:
+        return ""
+    host = (gesplitst.hostname or "").lower()
+    query = parse_qs(gesplitst.query)
+    if host in ("youtu.be", "www.youtu.be"):
+        return gesplitst.path.strip("/").split("/")[0]
+    if host in ("youtube.com", "www.youtube.com", "m.youtube.com"):
+        if gesplitst.path == "/watch":
+            return query.get("v", [""])[0]
+        delen = [deel for deel in gesplitst.path.split("/") if deel]
+        if len(delen) >= 2 and delen[0] in ("shorts", "live", "embed"):
+            return delen[1]
+    return ""
+
+
+def voer_afterfound_hook_uit(track, bron_url=None):
     """Voer [HOOKS] afterfound uit na een nieuwe herkenning."""
     global _laatste_afterfound
 
@@ -77,6 +98,8 @@ def voer_afterfound_hook_uit(track):
         "SHAZAM_ARTIST": str(track.get("subtitle") or ""),
         "SHAZAM_RECORD": str(track.get("title") or ""),
         "SHAZAM_ID": str(track.get("key") or ""),
+        "SHAZAM_URL": str(bron_url or ""),
+        "YOUTUBE_ID": youtube_id_uit_url(bron_url),
     }
 
     huidige = (
@@ -111,6 +134,8 @@ def voer_afterfound_hook_uit(track):
         ("%record", "SHAZAM_RECORD"),
         ("%id", "SHAZAM_ID"),
         ("%date", "SHAZAM_DATE"),
+        ("%url", "SHAZAM_URL"),
+        ("%youtubeid", "YOUTUBE_ID"),
     ):
         command = command.replace(placeholder, "${" + variable + "}")
 
@@ -444,6 +469,7 @@ async def herken_fragment(
     json_output=False,
     keep_temp=False,
     fragment_pad=None,
+    bron_url=None,
 ):
     shazam = Shazam()
     temp_pad = None
@@ -544,7 +570,7 @@ async def herken_fragment(
                 print(f"Titel   : {track.get('title')}")
                 print(f"Artiest : {track.get('subtitle')}")
 
-            voer_afterfound_hook_uit(track)
+            voer_afterfound_hook_uit(track, bron_url=bron_url)
 
             return 0
 
