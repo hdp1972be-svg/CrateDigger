@@ -490,6 +490,7 @@ def voer_afterfound_hook_uit(
     source=None,
     source_type=None,
     profile_name=None,
+    debug=False,
 ):
     """Compatibele wrapper voor de afterfound hook."""
     waarden = hook_waarden(
@@ -982,14 +983,43 @@ async def herken_fragment(
                 jaar = _shazam_jaar(track)
                 if jaar:
                     print(f"Jaar    : {jaar}")
-                extra = _shazam_flatten(track)
-                for naam, waarde in extra.items():
-                    if naam in {
-                        "SHAZAM_ARTIST", "SHAZAM_RECORD", "SHAZAM_GENRE",
-                        "SHAZAM_YEAR"
-                    } or not waarde:
-                        continue
-                    print(f"{naam[7:].lower().replace('_', '.'):12}: {waarde}")
+                if debug:
+                    extra = _shazam_flatten(track)
+                    for naam, waarde in extra.items():
+                        if naam in {
+                            "SHAZAM_ARTIST", "SHAZAM_RECORD", "SHAZAM_GENRE",
+                            "SHAZAM_YEAR"
+                        } or not waarde:
+                            continue
+                        print(f"{naam[7:].lower().replace('_', '.'):12}: {waarde}")
+                else:
+                    album = track.get("album")
+                    if isinstance(album, dict) and album.get("name"):
+                        print(f"Album   : {album.get('name')}")
+                    sections = track.get("sections")
+                    if isinstance(sections, list):
+                        for section in sections:
+                            if not isinstance(section, dict):
+                                continue
+                            metadata = section.get("metadata")
+                            if not isinstance(metadata, list):
+                                continue
+                            for item in metadata:
+                                if not isinstance(item, dict):
+                                    continue
+                                titel = str(item.get("title") or "").strip()
+                                tekst = str(item.get("text") or "").strip()
+                                if titel and tekst and titel.lower() in {
+                                    "album", "label", "released"
+                                }:
+                                    print(f"{titel:8}: {tekst}")
+                    for veld, label in (
+                        ("isrc", "ISRC"),
+                        ("url", "Shazam"),
+                    ):
+                        waarde = track.get(veld)
+                        if waarde:
+                            print(f"{label:8}: {waarde}")
                 if source:
                     print(f"Bron    : {source}")
 
@@ -1413,6 +1443,7 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
                         source_type="live",
                         source=f"{invoer}:{apparaat}",
                         profile_name=profile_name,
+                        debug=debug,
                     )
 
             except RuntimeError as fout:
