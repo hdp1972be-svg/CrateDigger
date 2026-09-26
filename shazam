@@ -23,6 +23,34 @@ import configparser
 from datetime import date
 from urllib.parse import parse_qs, urlsplit
 
+# Terminal output colors. Disabled automatically when stdout is not a TTY,
+# when TERM=dumb, or when NO_COLOR is set. FORCE_COLOR overrides detection.
+class Kleuren:
+    RESET = "\033[0m"
+    DIM = "\033[2m"
+    RED = "\033[31m"
+    GREEN = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE = "\033[34m"
+    MAGENTA = "\033[35m"
+    CYAN = "\033[36m"
+    BOLD = "\033[1m"
+
+def kleur(tekst, code):
+    if not kleur.actief:
+        return tekst
+    return f"{code}{tekst}{Kleuren.RESET}"
+
+def bepaal_kleur():
+    if os.environ.get("NO_COLOR") is not None:
+        return False
+    if os.environ.get("FORCE_COLOR") is not None:
+        return True
+    return sys.stdout.isatty() and os.environ.get("TERM") not in ("", "dumb")
+
+kleur.actief = bepaal_kleur()
+
+
 import aiohttp
 import socket
 import asyncio
@@ -63,7 +91,7 @@ def toon_hooks_status():
     if config is not None and config.has_option("HOOKS", "afterfound"):
         command = config.get("HOOKS", "afterfound").strip()
         if command:
-            print(f"🔗 afterfound hook actief: {command}")
+            print(kleur(f"🔗 afterfound hook actief: {command}", Kleuren.CYAN))
 
 
 _laatste_afterfound = None
@@ -109,7 +137,7 @@ def voer_afterfound_hook_uit(track, bron_url=None):
     )
 
     if huidige == _laatste_afterfound:
-        print("🔗 afterfound hook overgeslagen: hetzelfde nummer als vorige herkenning.")
+        print(kleur("🔗 afterfound hook overgeslagen: hetzelfde nummer als vorige herkenning.", Kleuren.DIM))
         return
 
     _laatste_afterfound = huidige
@@ -142,7 +170,7 @@ def voer_afterfound_hook_uit(track, bron_url=None):
     omgeving = os.environ.copy()
     omgeving.update(waarden)
 
-    print("🔗 Executing afterfound hook...")
+    print(kleur("🔗 Executing afterfound hook...", Kleuren.MAGENTA))
 
     try:
         resultaat = subprocess.run(
@@ -517,7 +545,7 @@ async def herken_fragment(
                 parameters=["-ar", "16000", "-ac", "1"],
             )
 
-        print("Shazam raadplegen...")
+        print(kleur("Shazam raadplegen...", Kleuren.CYAN))
 
         try:
             resultaat = await shazam.recognize(temp_pad)
@@ -644,7 +672,7 @@ class LiveBesturing:
             daemon=True,
         )
         self.input_thread.start()
-        print("Druk 'p' om te pauzeren/hervatten.")
+        print(kleur("Druk 'p' om te pauzeren/hervatten.", Kleuren.YELLOW))
 
     def verwerk_toetsen(self, process=None):
         while True:
