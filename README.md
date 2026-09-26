@@ -276,9 +276,9 @@ Shazam
     ↓
 song found
     ↓
-wait 10s   ← --delay
-    ↓
 wait 5s    ← --interval
+    ↓
+wait 10s   ← --delay
     ↓
 capture 25s
     ↓
@@ -295,9 +295,131 @@ The input source can be selected explicitly with `--device`. The exact name depe
 ./shazam --live --input jack --device system:capture_1
 ```
 
-Press `Ctrl-C` to stop a looping session.
+Press `Ctrl-C` to stop a looping session. You can also use `p` to pause/resume and `n` to discard the current cycle and start a fresh recording.
 
-### JSON output
+#
+### Interactive live controls
+
+Looping live recognition has keyboard controls directly from the terminal:
+
+- **\`p\`** — pause/resume the current live capture
+- **\`n\`** — discard the current capture or interrupt the current wait and start a fresh recording from 0s
+
+The controls also work during \`--interval\` and \`--delay\` waits. The terminal is put into a temporary no-echo mode while live mode is running, so the keys do not have to be followed by Enter.
+
+A live capture also displays a small real-time level meter based on the PCM audio actually received by FFmpeg:
+
+\`\`\`text
+Recording sec  24/25  [███████████████░░░░░] -12.1 dBFS  peak -1.6 dBFS
+\`\`\`
+
+If the captured PCM contains no non-zero samples, the program warns that the selected input may be silent or incorrect.
+
+For example:
+
+\`\`\`bash
+./shazam --live --input pulse --device shazam_sink.monitor --loop
+\`\`\`
+
+Press **\`p\`** whenever you want to pause/resume capture, or **\`n\`** to throw away the current cycle and immediately begin a new one.
+
+#### PulseAudio system-output capture
+
+A convenient way to feed normal system audio into Shazam is to create a PulseAudio null sink and loop the desired monitor into it:
+
+\`\`\`bash
+pactl load-module module-null-sink \\
+    sink_name=shazam_sink \\
+    sink_properties=device.description=ShazamSink
+\`\`\`
+
+Then route a monitor source into that sink with \`module-loopback\`. The exact monitor name depends on the active PulseAudio device:
+
+\`\`\`bash
+pactl list short sources
+\`\`\`
+
+For example:
+
+\`\`\`bash
+pactl load-module module-loopback \\
+    source=bluez_sink.CA_D5_01_BE_BA_6C.a2dp_sink.monitor \\
+    sink=shazam_sink \\
+    latency_msec=20
+\`\`\`
+
+Shazam can then listen to the null-sink monitor:
+
+\`\`\`bash
+./shazam --live --input pulse --device shazam_sink.monitor --loop
+\`\`\`
+
+This is useful when the audio you want to recognize is already playing through the normal system output.
+
+### \`afterfound\` hooks
+
+Recognized tracks can trigger an optional shell command through a \`.shazamrc\` configuration file.
+
+The first existing configuration file from these locations is used:
+
+\`\`\`text
+./.shazamrc
+~/.shazamrc
+~/.config/shazam/shazamrc
+~/.config/shazam/.shazamrc
+\`\`\`
+
+Example:
+
+\`\`\`ini
+[HOOKS]
+afterfound = shell exec task add "%artist %record %id %date" +MUSIC
+\`\`\`
+
+The hook runs after a successful recognition. These placeholders are expanded:
+
+| Placeholder | Environment variable | Value |
+|---|---|---|
+| \`%artist\` | \`SHAZAM_ARTIST\` | Recognized artist |
+| \`%record\` | \`SHAZAM_RECORD\` | Recognized track title |
+| \`%id\` | \`SHAZAM_ID\` | Shazam track key |
+| \`%date\` | \`SHAZAM_DATE\` | Current date, ISO format |
+
+The values are also exported as environment variables to the shell command. A leading \`shell exec \` is optional and is stripped before execution.
+
+When a hook is configured, the active command is shown at startup:
+
+\`\`\`text
+🔗 afterfound hook actief: shell exec task add "%artist %record %id %date" +MUSIC
+\`\`\`
+
+After a successful recognition:
+
+\`\`\`text
+🔗 Executing afterfound hook...
+\`\`\`
+
+If the same artist/title/Shazam-ID combination is recognized again during the same running process, the hook is skipped to avoid creating duplicate actions. Restarting the program resets this duplicate-suppression state.
+
+Hook failures do not invalidate an otherwise successful Shazam recognition; a non-zero hook exit status is reported as a warning.
+
+This makes the CLI usable as a small automation bridge, for example:
+
+\`\`\`text
+audio source
+    ↓
+live capture
+    ↓
+Shazam recognition
+    ↓
+artist + title + Shazam ID
+    ↓
+afterfound hook
+    ↓
+Taskwarrior / script / any shell command
+\`\`\`
+
+## JSON output
 
 For scripts and other automation:
 
@@ -393,7 +515,7 @@ For example:
 ./shazam --live --loop --interval 5 --delay 10
 ```
 
-The two delays are independent: `--delay` happens after a successful match, while `--interval` is the normal pause between live capture cycles.
+The two delays are independent: `--interval` is the normal pause between live capture cycles and runs first; `--delay` is added after a successful match.
 
 ### `--json`
 
