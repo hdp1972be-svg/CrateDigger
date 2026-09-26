@@ -91,6 +91,43 @@ def toon_profile_status(naam, waarden):
         print(f"   {sleutel} = {waarde}")
 
 
+def toon_profiles():
+    """Toon alle profielen uit .shazamrc met hun effectieve instellingen in tabelvorm."""
+    config = laad_hooks_config()
+    if config is None:
+        print("Geen .shazamrc gevonden; alleen profiel 'default' is beschikbaar.")
+        return
+
+    profielen = sorted(
+        sectie[len("PROFILE "):].strip()
+        for sectie in config.sections()
+        if sectie.upper().startswith("PROFILE ")
+        and sectie[len("PROFILE "):].strip()
+    )
+
+    if "default" in profielen:
+        profielen.remove("default")
+    profielen.insert(0, "default")
+
+    sleutels = tuple(DEFAULT_PROFILE.keys())
+    rijen = []
+    for naam in profielen:
+        waarden = laad_profile_waarden(naam)
+        for sleutel in sleutels:
+            rijen.append((naam, sleutel, str(waarden[sleutel])))
+
+    headers = ("PROFILE", "SETTING", "VALUE")
+    breedtes = [
+        max([len(headers[i])] + [len(rij[i]) for rij in rijen])
+        for i in range(3)
+    ]
+
+    print("  ".join(headers[i].ljust(breedtes[i]) for i in range(3)))
+    print("  ".join("-" * breedtes[i] for i in range(3)))
+    for rij in rijen:
+        print("  ".join(rij[i].ljust(breedtes[i]) for i in range(3)))
+
+
 def toon_hooks_status():
     """Toon bij startup of er een afterfound hook actief is."""
     config = laad_hooks_config()
@@ -1388,6 +1425,12 @@ def maak_parser():
         help="Gebruik een profiel uit .shazamrc (default: default)",
     )
 
+    parser.add_argument(
+        "--list-profiles",
+        action="store_true",
+        help="Toon alle profielen en hun effectieve instellingen in tabelvorm",
+    )
+
     parser.set_defaults(**DEFAULT_PROFILE)
 
     parser.add_argument(
@@ -1493,6 +1536,11 @@ def maak_parser():
 async def main():
     parser = maak_parser()
     profiel_args, _ = parser.parse_known_args()
+
+    if profiel_args.list_profiles:
+        toon_profiles()
+        raise SystemExit(0)
+
     profiel_waarden = laad_profile_waarden(profiel_args.profile)
     parser.set_defaults(**profiel_waarden)
     args = parser.parse_args()
