@@ -449,33 +449,15 @@ async def herken_fragment(
 
 
 
-def is_stille_wav(pad):
-    """
-    True als een opgenomen WAV-bestand uitsluitend nul-samples bevat.
-
-    Dit is bewust een harde nultest: normale zeer stille audio mag niet als
-    foutieve input worden aangemerkt. Een volledig nul signaal wijst wel vaak
-    op een verkeerde capture device/source.
-    """
-    try:
-        with wave.open(pad, "rb") as wav:
-            frames = wav.readframes(wav.getnframes())
-        return not any(frames)
-    except (OSError, wave.Error):
-        return False
-
-
-
 def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
     """
-    Neem een live audiofragment op via een FFmpeg audio-input.
+    Neem live audio op en controleer het PCM-signaal tijdens de opname.
 
-    Ondersteunde backends:
-        alsa   - Linux ALSA
-        pulse  - PulseAudio
-        jack   - JACK
+    FFmpeg schrijft raw s16le PCM naar stdout. Daardoor kunnen we meteen
+    bijhouden of er überhaupt een niet-nul sample binnenkomt, zonder het
+    WAV-bestand achteraf opnieuw te moeten lezen.
 
-    Geeft het pad naar een tijdelijke 16 kHz mono WAV terug.
+    Geeft (pad, stil) terug.
     """
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("FFmpeg is niet geïnstalleerd (nodig voor live audio).")
@@ -497,31 +479,68 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
     tmp_pad = tmp.name
     tmp.close()
 
+    sample_rate = 16000
+    channels = 1
+    sample_width = 2  # s16le
+
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-f", backends[invoer],
+        "-i", apparaat,
+        "-t", str(duur_sec),
+        "-ar", str(sample_rate),
+        "-ac", str(channels),
+        "-f", "s16le",
+        "-",
+    ]
+
+    print(f"Luisteren via {invoer} ({duur_sec}s)...")
+
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    any_signal = False
+
     try:
-        print(f"Luisteren via {invoer} ({duur_sec}s)...")
-        subprocess.run(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-loglevel", "error",
-                "-f", backends[invoer],
-                "-i", apparaat,
-                "-t", str(duur_sec),
-                "-ar", "16000",
-                "-ac", "1",
-                "-y",
-                tmp_pad,
-            ],
-            check=True,
-        )
-    except (subprocess.CalledProcessError, OSError) as e:
+        with wave.open(tmp_pad, "wb") as wav:
+            wav.setnchannels(channels)
+            wav.setsampwidth(sample_width)
+            wav.setframerate(sample_rate)
+
+            while True:
+                data = process.stdout.read(4096)
+                if not data:
+                    break
+
+                if not any_signal and any(data):
+                    any_signal = True
+
+                wav.writeframes(data)
+
+        stderr = process.stderr.read().decode(errors="replace").strip()
+        returncode = process.wait()
+
+        if returncode != 0:
+            raise RuntimeError(
+                f"{invoer} audio kon niet worden opgenomen van "
+                f"'{apparaat}': {stderr or 'ffmpeg fout'}"
+            )
+
+    except (OSError, wave.Error) as e:
+        process.kill()
+        process.wait()
         if os.path.exists(tmp_pad):
             os.remove(tmp_pad)
         raise RuntimeError(
             f"{invoer} audio kon niet worden opgenomen van '{apparaat}'."
         ) from e
 
-    return tmp_pad
+    return tmp_pad, not any_signal
 
 
 async def live_modus(duur_sec, interval_sec, loop, json_output, keep_temp, invoer, apparaat):
@@ -536,9 +555,11 @@ async def live_modus(duur_sec, interval_sec, loop, json_output, keep_temp, invoe
         fragment_pad = None
 
         try:
-            fragment_pad = neem_live_audio_op(duur_sec, invoer, apparaat)
+            fragment_pad, stil = neem_live_audio_op(
+                duur_sec, invoer, apparaat
+            )
 
-            if is_stille_wav(fragment_pad):
+            if stil:
                 print(
                     "⚠️  WARNING: captured audio contains only silence "
                     "(all samples are zero). Possible wrong input device/source."
