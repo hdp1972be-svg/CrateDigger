@@ -28,6 +28,8 @@ device = default
 loop = false
 json = false
 keep_temp = false
+# Leave empty to keep unmatched fragments in the system temp directory.
+nomatch_dir =
 live = false
 recursive = false
 
@@ -38,6 +40,7 @@ recursive = false
 duration = 25
 recursive = true
 json = false
+nomatch_dir = ~/.local/share/cratedigger/nomatch
 
 
 [PROFILE radio]
