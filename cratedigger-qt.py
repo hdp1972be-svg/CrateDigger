@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Thin Qt6 wrapper for the CrateDigger CLI.
+"""Thin Qt5 wrapper for the CrateDigger CLI.
 
 The original ./shazam program is intentionally left untouched. This wrapper
 runs it inside a pseudo-terminal (PTY), so the CLI still sees a real TTY:
@@ -20,9 +20,9 @@ import signal
 import sys
 from pathlib import Path
 
-from PyQt6.QtCore import QSocketNotifier, Qt
-from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
-from PyQt6.QtWidgets import QApplication, QMainWindow, QPlainTextEdit, QToolBar
+from PyQt5.QtCore import QSocketNotifier, Qt
+from PyQt5.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPlainTextEdit, QToolBar
 
 APP_DIR = Path(__file__).resolve().parent
 CLI = APP_DIR / "shazam"
@@ -44,7 +44,7 @@ class Terminal(QPlainTextEdit):
         super().__init__()
         self.setReadOnly(True)
         self.setUndoRedoEnabled(False)
-        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.setLineWrapMode(QPlainTextEdit.NoWrap)
         self.setFont(QFont("Monospace", 10))
         self.setStyleSheet(
             "QPlainTextEdit { background: #111111; color: #dddddd; "
@@ -104,7 +104,7 @@ class Terminal(QPlainTextEdit):
 
     def _write_line(self, line: str):
         cursor = self.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.movePosition(QTextCursor.End)
         cursor.insertText(line, self._fmt)
         cursor.insertText("\n", self._fmt)
         self.setTextCursor(cursor)
@@ -112,12 +112,9 @@ class Terminal(QPlainTextEdit):
 
     def _replace_current_display_line(self):
         cursor = self.textCursor()
-        cursor.movePosition(QTextCursor.MoveOperation.End)
+        cursor.movePosition(QTextCursor.End)
         if self.toPlainText():
-            cursor.movePosition(
-                QTextCursor.MoveOperation.StartOfBlock,
-                QTextCursor.MoveMode.KeepAnchor,
-            )
+            cursor.movePosition(QTextCursor.StartOfBlock, QTextCursor.KeepAnchor)
             cursor.removeSelectedText()
         cursor.insertText(self._current_line, self._fmt)
         self.setTextCursor(cursor)
@@ -135,7 +132,7 @@ class Terminal(QPlainTextEdit):
                 self._fmt.setForeground(QColor("#dddddd"))
             elif code == 1:
                 fmt = QTextCharFormat(self._fmt)
-                fmt.setFontWeight(QFont.Weight.Bold)
+                fmt.setFontWeight(QFont.Bold)
                 self._fmt = fmt
             elif code == 2:
                 fmt = QTextCharFormat(self._fmt)
@@ -158,7 +155,7 @@ class CrateDiggerWindow(QMainWindow):
 
         toolbar = QToolBar()
         toolbar.setMovable(False)
-        toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextOnly)
+        toolbar.setToolButtonStyle(Qt.ToolButtonTextOnly)
         self.addToolBar(toolbar)
         self.status = toolbar.addAction("Starting…")
         toolbar.addSeparator()
@@ -174,9 +171,7 @@ class CrateDiggerWindow(QMainWindow):
             os.execve(str(CLI), [str(CLI), *argv], env)
 
         self.child_pid = child_pid
-        self.notifier = QSocketNotifier(
-            self.master_fd, QSocketNotifier.Type.Read
-        )
+        self.notifier = QSocketNotifier(self.master_fd, QSocketNotifier.Read)
         self.notifier.activated.connect(self.read_pty)
         self.status.setText("Running")
 
@@ -203,8 +198,8 @@ class CrateDiggerWindow(QMainWindow):
             self.send_key(event.text())
             return
         if (
-            event.key() == Qt.Key.Key_C
-            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+            event.key() == Qt.Key_C
+            and event.modifiers() & Qt.ControlModifier
         ):
             self.stop_process()
             return
