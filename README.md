@@ -27,17 +27,136 @@ I built this because I couldn't find another small CLI tool that combines this p
   - `pydub`
   - `shazamio`
 
-Check that yt-dlp is available:
+### What the dependencies do
+
+Each dependency has a fairly specific job in the pipeline:
+
+#### yt-dlp — obtaining the source audio
+
+**yt-dlp** is responsible for retrieving the media from YouTube when the input is a YouTube URL.
+
+It handles the YouTube-specific part — including format selection, extraction, and browser-cookie authentication. The script can therefore treat the downloaded result as an ordinary media file rather than having to implement YouTube's changing extraction mechanisms itself.
+
+The tool also uses Firefox's existing browser cookies when requested, which is useful for videos where the browser session already has the required access.
+
+> yt-dlp is only needed when the input is a YouTube URL. Local media files bypass it completely.
+
+#### FFmpeg — decoding and converting media
+
+**FFmpeg** is the media-processing engine underneath the audio extraction step.
+
+It allows the project to work with different audio/video containers and codecs and to extract the small section of audio that is actually sent to Shazam.
+
+For example, if you give the program a 90-minute video and ask for:
+
+```bash
+./shazam.py video.mp4 -t 42:17 -d 15
+```
+
+the interesting part is the **15-second audio fragment around 42:17**, not the entire video.
+
+FFmpeg is therefore the low-level media layer; it is not itself doing the music recognition.
+
+#### pydub — convenient audio manipulation
+
+**pydub** provides the higher-level Python interface used for manipulating the extracted audio.
+
+Instead of dealing directly with FFmpeg's command-line syntax for every audio operation, the Python code can work with an audio segment and slice the requested time range.
+
+In simplified terms:
+
+```text
+media file
+    ↓
+FFmpeg decoding
+    ↓
+pydub AudioSegment
+    ↓
+[start : start + duration]
+    ↓
+short audio sample
+```
+
+pydub therefore sits between the Python application and the underlying media conversion tools.
+
+#### ShazamIO — music recognition
+
+**ShazamIO** is the Python interface used to submit the selected audio fragment to Shazam's recognition service and retrieve the recognition result.
+
+This is the component that answers the actual question:
+
+> "What song is this?"
+
+The result can contain information such as the track title and artist, which the CLI then displays or serializes as JSON.
+
+#### aiohttp — asynchronous HTTP
+
+**aiohttp** provides asynchronous HTTP functionality used by the ShazamIO stack.
+
+The project does not use aiohttp as another independent music-recognition engine; it is part of the Python networking layer required for communicating with the recognition service.
+
+### Dependency relationship
+
+The whole stack can be viewed as:
+
+```
+                    YouTube URL
+                         │
+                         ▼
+                      yt-dlp
+                         │
+                         ▼
+                  downloaded media
+                         │
+                         ▼
+                      FFmpeg
+                         │
+                         ▼
+                    pydub audio
+                         │
+                         ▼
+                selected audio fragment
+                         │
+                         ▼
+                    ShazamIO
+                         │
+                         ▼
+                      aiohttp
+                         │
+                         ▼
+                 Shazam recognition
+                         │
+                         ▼
+                   song + artist
+```
+
+For a local file, the YouTube/yt-dlp stage is simply skipped.
+
+### Installing the dependencies
+
+Install the system dependency first:
+
+**Debian/Ubuntu:**
+
+```bash
+sudo apt install ffmpeg
+```
+
+Then install the Python packages:
+
+```python
+python3 -m pip install aiohttp pydub shazamio
+```
+
+And make sure yt-dlp is available:
 
 ```bash
 which yt-dlp
+yt-dlp --version
+ffmpeg -version
 ```
 
-Install the Python dependencies with:
-
-```bash
-python3 -m pip install aiohttp pydub shazamio
-```
+The important distinction is that **FFmpeg and yt-dlp are external executables**, while **aiohttp, pydub, and shazamio are Python packages**.
 
 ## Usage
 
