@@ -139,60 +139,92 @@ def haal_confidence(track):
     return None
 
 
-def voer_afterfound_hook_uit(
-    track,
+HOOK_EVENTS = ("beforefound", "afterfound", "nomatch", "error")
+
+
+def hook_command(event, profile_name=None):
+    """Haal een hookcommando op; een profielhook heeft voorrang op [HOOKS]."""
+    config = laad_hooks_config()
+    if config is None:
+        return ""
+
+    if profile_name:
+        sectie = f"PROFILE {profile_name}"
+        if config.has_option(sectie, event):
+            command = config.get(sectie, event).strip()
+            if command:
+                return command
+
+    if config.has_option("HOOKS", event):
+        return config.get("HOOKS", event).strip()
+
+    return ""
+
+
+def hook_waarden(
+    track=None,
     bron_url=None,
     confidence=None,
     source=None,
     source_type=None,
+    error=None,
+    exit_code=None,
 ):
-    """Voer [HOOKS] afterfound uit na een nieuwe herkenning."""
-    global _laatste_afterfound
-
+    """Bouw de gemeenschappelijke omgeving voor alle hooks."""
+    track = track or {}
     genres = track.get("genres") or {}
     if isinstance(genres, dict):
         genre = str(genres.get("primary") or "")
     else:
         genre = str(genres[0] if genres else "")
 
-    waarden = {
+    return {
         "SHAZAM_ARTIST": str(track.get("subtitle") or ""),
         "SHAZAM_RECORD": str(track.get("title") or ""),
         "SHAZAM_ID": str(track.get("key") or ""),
         "SHAZAM_GENRE": genre,
         "SHAZAM_CONFIDENCE": "" if confidence is None else str(confidence),
+        "SHAZAM_DATE": date.today().isoformat(),
         "SHAZAM_URL": str(bron_url or ""),
         "YOUTUBE_ID": youtube_id_uit_url(bron_url),
         "SHAZAM_SOURCE": str(source or bron_url or ""),
         "SHAZAM_SOURCE_TYPE": str(source_type or ("url" if bron_url else "")),
+        "SHAZAM_ERROR": str(error or ""),
+        "SHAZAM_EXIT_CODE": "" if exit_code is None else str(exit_code),
     }
 
-    huidige = (
-        waarden["SHAZAM_ARTIST"],
-        waarden["SHAZAM_RECORD"],
-        waarden["SHAZAM_ID"],
-    )
 
-    if huidige == _laatste_afterfound:
-        print(kleur("🔗 afterfound hook overgeslagen: hetzelfde nummer als vorige herkenning.", Kleuren.DIM))
-        return
+def voer_hook_uit(
+    event,
+    waarden,
+    profile_name=None,
+    dedupe=False,
+):
+    """Voer een configured shell hook uit."""
+    global _laatste_afterfound
 
-    _laatste_afterfound = huidige
-
-    config = laad_hooks_config()
-
-    if config is None or not config.has_option("HOOKS", "afterfound"):
-        return
-
-    command = config.get("HOOKS", "afterfound").strip()
-
-    if command.lower().startswith("shell exec "):
-        command = command[11:].lstrip()
-
+    command = hook_command(event, profile_name)
     if not command:
         return
 
-    waarden["SHAZAM_DATE"] = date.today().isoformat()
+    if dedupe:
+        huidige = (
+            waarden.get("SHAZAM_ARTIST", ""),
+            waarden.get("SHAZAM_RECORD", ""),
+            waarden.get("SHAZAM_ID", ""),
+        )
+        if huidige == _laatste_afterfound:
+            print(
+                kleur(
+                    "🔗 afterfound hook overgeslagen: hetzelfde nummer als vorige herkenning.",
+                    Kleuren.DIM,
+                )
+            )
+            return
+        _laatste_afterfound = huidige
+
+    if command.lower().startswith("shell exec "):
+        command = command[11:].lstrip()
 
     for placeholder, variable in (
         ("%artist", "SHAZAM_ARTIST"),
@@ -205,13 +237,15 @@ def voer_afterfound_hook_uit(
         ("%youtubeid", "YOUTUBE_ID"),
         ("%source", "SHAZAM_SOURCE"),
         ("%sourcetype", "SHAZAM_SOURCE_TYPE"),
+        ("%error", "SHAZAM_ERROR"),
+        ("%exitcode", "SHAZAM_EXIT_CODE"),
     ):
-        command = command.replace(placeholder, "${" + variable + "}")
+        command = command.replace(placeholder, " + variable + ")
 
     omgeving = os.environ.copy()
     omgeving.update(waarden)
 
-    print(kleur("🔗 Executing afterfound hook...", Kleuren.MAGENTA))
+    print(kleur(f"🔗 Executing {event} hook...", Kleuren.MAGENTA))
 
     try:
         resultaat = subprocess.run(
@@ -221,15 +255,42 @@ def voer_afterfound_hook_uit(
             check=False,
         )
     except OSError as e:
-        print(f"⚠️  afterfound hook kon niet worden gestart: {e}", file=sys.stderr)
+        print(
+            f"⚠️  {event} hook kon niet worden gestart: {e}",
+            file=sys.stderr,
+        )
         return
 
     if resultaat.returncode != 0:
         print(
-            f"⚠️  afterfound hook eindigde met exit code "
+            f"⚠️  {event} hook eindigde met exit code "
             f"{resultaat.returncode}.",
             file=sys.stderr,
         )
+
+
+def voer_afterfound_hook_uit(
+    track,
+    bron_url=None,
+    confidence=None,
+    source=None,
+    source_type=None,
+    profile_name=None,
+):
+    """Compatibele wrapper voor de afterfound hook."""
+    waarden = hook_waarden(
+        track=track,
+        bron_url=bron_url,
+        confidence=confidence,
+        source=source,
+        source_type=source_type,
+    )
+    voer_hook_uit(
+        "afterfound",
+        waarden,
+        profile_name=profile_name,
+        dedupe=True,
+    )
 
 
 
@@ -541,6 +602,7 @@ async def herken_fragment(
     bron_url=None,
     source=None,
     source_type=None,
+    profile_name=None,
 ):
     shazam = Shazam()
     temp_pad = None
@@ -588,6 +650,16 @@ async def herken_fragment(
                 parameters=["-ar", "16000", "-ac", "1"],
             )
 
+        voer_hook_uit(
+            "beforefound",
+            hook_waarden(
+                bron_url=bron_url,
+                source=source,
+                source_type=source_type,
+            ),
+            profile_name=profile_name,
+        )
+
         print(kleur("Shazam raadplegen...", Kleuren.CYAN))
 
         try:
@@ -595,30 +667,82 @@ async def herken_fragment(
 
         except asyncio.TimeoutError:
             print("❌ Netwerk-timeout tijdens verbinden met Shazam.")
+            voer_hook_uit(
+                "error",
+                hook_waarden(
+                    bron_url=bron_url,
+                    source=source,
+                    source_type=source_type,
+                    error="Netwerk-timeout tijdens verbinden met Shazam.",
+                    exit_code=2,
+                ),
+                profile_name=profile_name,
+            )
             return 2
 
         except aiohttp.ClientConnectorError as e:
             print(f"❌ Kan geen verbinding maken met Shazam ({e.host}).")
+            voer_hook_uit(
+                "error",
+                hook_waarden(
+                    bron_url=bron_url,
+                    source=source,
+                    source_type=source_type,
+                    error=f"Kan geen verbinding maken met Shazam ({e.host}).",
+                    exit_code=2,
+                ),
+                profile_name=profile_name,
+            )
             return 2
 
         except aiohttp.ClientConnectionError:
             print("❌ Netwerkverbinding verbroken.")
+            voer_hook_uit(
+                "error",
+                hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
+                             error="Netwerkverbinding verbroken.", exit_code=2),
+                profile_name=profile_name,
+            )
             return 2
 
         except aiohttp.ClientResponseError as e:
             print(f"❌ HTTP-fout {e.status} van Shazam.")
+            voer_hook_uit(
+                "error",
+                hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
+                             error=f"HTTP-fout {e.status} van Shazam.", exit_code=2),
+                profile_name=profile_name,
+            )
             return 2
 
         except socket.gaierror:
             print("❌ DNS lookup mislukt.")
+            voer_hook_uit(
+                "error",
+                hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
+                             error="DNS lookup mislukt.", exit_code=2),
+                profile_name=profile_name,
+            )
             return 2
 
         except aiohttp.ClientError as e:
             print(f"❌ Netwerkfout: {e}")
+            voer_hook_uit(
+                "error",
+                hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
+                             error=f"Netwerkfout: {e}", exit_code=2),
+                profile_name=profile_name,
+            )
             return 2
 
         except Exception as e:
             print(f"❌ Onverwachte fout tijdens herkenning: {e}")
+            voer_hook_uit(
+                "error",
+                hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
+                             error=str(e), exit_code=3),
+                profile_name=profile_name,
+            )
             return 3
 
         if "track" in resultaat:
@@ -663,6 +787,7 @@ async def herken_fragment(
                 confidence=confidence,
                 source=source,
                 source_type=source_type,
+                profile_name=profile_name,
             )
 
             return 0
@@ -671,6 +796,17 @@ async def herken_fragment(
             print(json.dumps({"status": "no_match"}))
         else:
             print("❌ Geen herkenning.")
+
+        voer_hook_uit(
+            "nomatch",
+            hook_waarden(
+                bron_url=bron_url,
+                source=source,
+                source_type=source_type,
+                exit_code=1,
+            ),
+            profile_name=profile_name,
+        )
 
         return 1
 
@@ -1200,6 +1336,10 @@ DEFAULT_PROFILE = {
     "keep_temp": False,
     "live": False,
     "recursive": False,
+    "beforefound": "",
+    "afterfound": "",
+    "nomatch": "",
+    "error": "",
 }
 
 
@@ -1384,6 +1524,7 @@ async def main():
             args.keep_temp,
             args.input,
             args.device,
+            profile_name=args.profile,
         )
         raise SystemExit(code)
 
