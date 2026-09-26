@@ -168,6 +168,7 @@ def voer_afterfound_hook_uit(track, bron_url=None):
         ("%artist", "SHAZAM_ARTIST"),
         ("%record", "SHAZAM_RECORD"),
         ("%id", "SHAZAM_ID"),
+        ("%genre", "SHAZAM_GENRE"),
         ("%date", "SHAZAM_DATE"),
         ("%url", "SHAZAM_URL"),
         ("%youtubeid", "YOUTUBE_ID"),
@@ -588,6 +589,11 @@ async def herken_fragment(
         if "track" in resultaat:
 
             track = resultaat["track"]
+            genres = track.get("genres") or {}
+            if isinstance(genres, dict):
+                genre = str(genres.get("primary") or "")
+            else:
+                genre = str(genres[0] if genres else "")
 
             if json_output:
                 print(
