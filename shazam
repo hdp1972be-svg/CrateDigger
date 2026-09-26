@@ -894,18 +894,19 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
 
                 if stil:
                     print(
-                        "⚠️  WARNING: captured audio contains only silence "
-                        "(all samples are zero). Possible wrong input device/source."
+                        "⚠️  Captured audio contains only silence "
+                        "(all samples are zero) — Shazam wordt niet geraadpleegd."
                     )
-
-                code = await herken_fragment(
-                    None,
-                    0,
-                    duur_sec,
-                    json_output,
-                    keep_temp,
-                    fragment_pad=fragment_pad,
-                )
+                    code = 1
+                else:
+                    code = await herken_fragment(
+                        None,
+                        0,
+                        duur_sec,
+                        json_output,
+                        keep_temp,
+                        fragment_pad=fragment_pad,
+                    )
 
             except RuntimeError as fout:
                 print(f"❌ {fout}", file=sys.stderr)
