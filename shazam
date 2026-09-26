@@ -512,6 +512,13 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
             wav.setsampwidth(sample_width)
             wav.setframerate(sample_rate)
 
+            totaal_bytes = max(
+                1,
+                int(duur_sec * sample_rate * channels * sample_width),
+            )
+            verwerkte_bytes = 0
+            vorige_sec = 0
+
             while True:
                 data = process.stdout.read(4096)
                 if not data:
@@ -521,6 +528,23 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
                     any_signal = True
 
                 wav.writeframes(data)
+                verwerkte_bytes += len(data)
+
+                huidige_sec = min(
+                    duur_sec,
+                    verwerkte_bytes / (sample_rate * channels * sample_width),
+                )
+                huidige_sec_int = int(huidige_sec)
+
+                if huidige_sec_int > vorige_sec:
+                    vorige_sec = huidige_sec_int
+                    print(
+                        f"\\rRecording sec {vorige_sec}/{duur_sec}",
+                        end="",
+                        flush=True,
+                    )
+
+            print()
 
         stderr = process.stderr.read().decode(errors="replace").strip()
         returncode = process.wait()
