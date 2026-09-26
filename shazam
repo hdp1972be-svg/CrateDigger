@@ -86,26 +86,15 @@ def zet_tijd_om_naar_ms(tijd_str):
     ) * 1000
 
 
-YOUTUBE_HOSTS = (
-    "youtube.com",
-    "youtu.be",
-    "youtube-nocookie.com",
-)
+URL_SCHEMES = ("http", "https")
 
 
-def is_youtube_url(bron):
-    """
-    True als de string een YouTube-url is (incl. m./music. subdomeinen).
-    """
+def is_url(bron):
+    """True als de input een HTTP(S)-URL is die yt-dlp kan proberen te openen."""
     if "://" not in bron:
         return False
 
-    host = (urlsplit(bron).hostname or "").lower()
-
-    return any(
-        host == domein or host.endswith("." + domein)
-        for domein in YOUTUBE_HOSTS
-    )
+    return urlsplit(bron).scheme.lower() in URL_SCHEMES
 
 
 def parse_youtube_tijd(waarde):
@@ -154,10 +143,12 @@ def parse_youtube_tijd(waarde):
 # @anchor: url:tijd-parameter
 def haal_tijd_uit_url(url):
     """
-    Haal de starttijd (ms) uit een YouTube-url. Ondersteunt de ?t=, ?start=
-    en ?time_continue= parameters, de #t= fragmenten en een kale tijd in de
-    fragmenten. Geeft 0 terug als de url geen tijd bevat en gooit ValueError
-    als er wel een tijd staat die we niet kunnen lezen.
+    Haal een eventuele starttijd (ms) uit een media-url.
+
+    Ondersteunt ?t=, ?start= en ?time_continue=, plus #t=/#start=
+    fragmenten. Dit is bewust niet YouTube-specifiek: yt-dlp kan ook andere
+    sites afhandelen, terwijl een URL zonder herkenbare tijd gewoon op 0
+    begint.
     """
     if "://" not in url:
         url = "https://" + url
@@ -240,8 +231,8 @@ def zet_om_naar_wav(pad):
     return doelpad
 
 
-# @anchor: youtube:audio-download
-def download_youtube_gedeelte(url, starttijd_ms, duur_sec):
+# @anchor: url:audio-download
+def download_url_gedeelte(url, starttijd_ms, duur_sec):
     """
     Download alleen het gevraagde gedeelte van de audio van een YouTube-url
     met yt-dlp --download-sections, zodat niet de hele file wordt overgezet.
@@ -601,8 +592,8 @@ def maak_parser():
         "mediafile",
         nargs="?",
         help=(
-            "Pad naar media-bestand, of een YouTube-url "
-            "(met optioneel een starttijd, bv. ?t=1m30s)."
+            "Pad naar media-bestand, of een HTTP(S)-url die yt-dlp ondersteunt "
+            "(bv. YouTube, SoundCloud of Bandcamp)."
         ),
     )
 
@@ -673,9 +664,9 @@ async def main():
     bron = args.mediafile
     if not bron:
         parser.error("geef een mediafile/url op, of gebruik --live")
-    bron_is_url = is_youtube_url(bron)
+    bron_is_url = is_url(bron)
 
-    # @anchor: main:youtube-pad
+    # @anchor: main:url-pad
     if bron_is_url:
         if shutil.which("yt-dlp") is None:
             print("yt-dlp is niet geïnstalleerd.", file=sys.stderr)
@@ -702,7 +693,7 @@ async def main():
 
         print(f"Audio ophalen van {bron}")
         try:
-            audio_pad, tmpdir = download_youtube_gedeelte(
+            audio_pad, tmpdir = download_url_gedeelte(
                 bron,
                 starttijd,
                 args.duration,
