@@ -311,15 +311,30 @@ The important part is that you don't have to manually download the video, cut ou
 
 ## Why?
 
-There are plenty of ways to identify music *from a microphone* or from a file. What I wanted was the slightly different workflow:
+Ever found a track in a long YouTube DJ mix, but don't know what it is?
+
+Instead of playing the mix and holding your phone up to Shazam:
 
 ```bash
-youtube-shazam URL -t 12:43
+youtube-shazam 'https://www.youtube.com/watch?v=VIDEO_ID' -t 47:23
 ```
 
-> "What song is playing at 12:43?"
+That's it.
 
-That makes it particularly useful for DJ sets, mixes, remixes, live recordings, long videos, playlists, interviews, and other YouTube content where the interesting track is only a small part of the video.
+The tool grabs a short section around that timestamp and sends it to Shazam.
+
+It's particularly handy for:
+
+- 🎧 DJ mixes
+- 🔊 radio mixes
+- 🎵 long playlists
+- 🪩 live sets
+- 🎚️ remix compilations
+- 📼 old recordings uploaded to YouTube
+
+You can jump around a mix and query different timestamps without having to listen to the whole thing.
+
+**Basically: Shazam, but for arbitrary points in a YouTube video.**
 
 ## License
 
