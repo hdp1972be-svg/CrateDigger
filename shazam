@@ -500,7 +500,7 @@ def neem_live_audio_op(duur_sec, apparaat="default"):
     return tmp_pad
 
 
-async def live_modus(duur_sec, interval_sec, loop, json_output, keep_temp):
+async def live_modus(duur_sec, interval_sec, loop, json_output, keep_temp, apparaat):
     """
     Neem één of herhaalde live audiofragmenten op en herken ze met Shazam.
 
@@ -512,7 +512,7 @@ async def live_modus(duur_sec, interval_sec, loop, json_output, keep_temp):
         fragment_pad = None
 
         try:
-            fragment_pad = neem_live_audio_op(duur_sec)
+            fragment_pad = neem_live_audio_op(duur_sec, apparaat)
 
             code = await herken_fragment(
                 None,
@@ -565,6 +565,12 @@ def maak_parser():
     )
 
     parser.add_argument(
+        "--device",
+        default="default",
+        help="ALSA input device voor --live (default: default)",
+    )
+
+    parser.add_argument(
         "--loop",
         action="store_true",
         help="Blijf live audio opnemen en herkennen",
@@ -572,6 +578,7 @@ def maak_parser():
 
     parser.add_argument(
         "mediafile",
+        nargs="?",
         help=(
             "Pad naar media-bestand, of een YouTube-url "
             "(met optioneel een starttijd, bv. ?t=1m30s)."
@@ -637,10 +644,13 @@ async def main():
             args.loop,
             args.json,
             args.keep_temp,
+            args.device,
         )
         raise SystemExit(code)
 
     bron = args.mediafile
+    if not bron:
+        parser.error("geef een mediafile/url op, of gebruik --live")
     bron_is_url = is_youtube_url(bron)
 
     # @anchor: main:youtube-pad
