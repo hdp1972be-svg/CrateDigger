@@ -456,14 +456,28 @@ async def herken_fragment(
 
 
 
-def neem_live_audio_op(duur_sec, apparaat="default"):
+def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
     """
-    Neem een live audiofragment op via FFmpeg's ALSA input.
+    Neem een live audiofragment op via een FFmpeg audio-input.
+
+    Ondersteunde backends:
+        alsa   - Linux ALSA
+        pulse  - PulseAudio
+        jack   - JACK
 
     Geeft het pad naar een tijdelijke 16 kHz mono WAV terug.
     """
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("FFmpeg is niet geïnstalleerd (nodig voor live audio).")
+
+    backends = {
+        "alsa": "alsa",
+        "pulse": "pulse",
+        "jack": "jack",
+    }
+
+    if invoer not in backends:
+        raise ValueError(f"Onbekende live-input: {invoer}")
 
     tmp = tempfile.NamedTemporaryFile(
         suffix=".wav",
@@ -474,13 +488,13 @@ def neem_live_audio_op(duur_sec, apparaat="default"):
     tmp.close()
 
     try:
-        print(f"Luisteren ({duur_sec}s)...")
+        print(f"Luisteren via {invoer} ({duur_sec}s)...")
         subprocess.run(
             [
                 "ffmpeg",
                 "-hide_banner",
                 "-loglevel", "error",
-                "-f", "alsa",
+                "-f", backends[invoer],
                 "-i", apparaat,
                 "-t", str(duur_sec),
                 "-ar", "16000",
@@ -494,13 +508,13 @@ def neem_live_audio_op(duur_sec, apparaat="default"):
         if os.path.exists(tmp_pad):
             os.remove(tmp_pad)
         raise RuntimeError(
-            f"ALSA audio kon niet worden opgenomen van '{apparaat}'."
+            f"{invoer} audio kon niet worden opgenomen van '{apparaat}'."
         ) from e
 
     return tmp_pad
 
 
-async def live_modus(duur_sec, interval_sec, loop, json_output, keep_temp, apparaat):
+async def live_modus(duur_sec, interval_sec, loop, json_output, keep_temp, invoer, apparaat):
     """
     Neem één of herhaalde live audiofragmenten op en herken ze met Shazam.
 
@@ -512,7 +526,7 @@ async def live_modus(duur_sec, interval_sec, loop, json_output, keep_temp, appar
         fragment_pad = None
 
         try:
-            fragment_pad = neem_live_audio_op(duur_sec, apparaat)
+            fragment_pad = neem_live_audio_op(duur_sec, invoer, apparaat)
 
             code = await herken_fragment(
                 None,
@@ -565,9 +579,16 @@ def maak_parser():
     )
 
     parser.add_argument(
+        "--input",
+        choices=("alsa", "pulse", "jack"),
+        default="alsa",
+        help="Live audio backend: alsa, pulse of jack (default: alsa)",
+    )
+
+    parser.add_argument(
         "--device",
         default="default",
-        help="ALSA input device voor --live (default: default)",
+        help="Input device/source/client (default: default)",
     )
 
     parser.add_argument(
@@ -644,6 +665,7 @@ async def main():
             args.loop,
             args.json,
             args.keep_temp,
+            args.input,
             args.device,
         )
         raise SystemExit(code)
