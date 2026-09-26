@@ -51,6 +51,10 @@ interval = 10
 delay = 5
 loop = true
 
+# Explicitly keep the global hooks in this profile as well.
+afterfound = shell exec task add "%artist %record %id %date" +MUSIC
+error = shell exec printf '[CrateDigger] error %s: %s\\n' "$SHAZAM_EXIT_CODE" "$SHAZAM_ERROR" >&2
+
 # Radio misses are expected; don't print anything.
 nomatch = shell exec true
 
