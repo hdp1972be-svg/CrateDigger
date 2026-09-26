@@ -92,7 +92,7 @@ def toon_profile_status(naam, waarden):
 
 
 def toon_profiles():
-    """Toon alle profielen uit .shazamrc met hun effectieve instellingen in tabelvorm."""
+    """Toon alle profielen uit .shazamrc naast elkaar in tabelvorm."""
     config = laad_hooks_config()
     if config is None:
         print("Geen .shazamrc gevonden; alleen profiel 'default' is beschikbaar.")
@@ -109,33 +109,43 @@ def toon_profiles():
         profielen.remove("default")
     profielen.insert(0, "default")
 
-    sleutels = tuple(DEFAULT_PROFILE.keys())
-    rijen = []
-    for naam in profielen:
-        waarden = laad_profile_waarden(naam)
-        for sleutel in sleutels:
-            rijen.append((naam, sleutel, str(waarden[sleutel])))
+    sleutels = list(DEFAULT_PROFILE.keys())
 
-    headers = ("PROFILE", "SETTING", "VALUE")
+    # Hooks zijn profielinstellingen voor de overzichtstabel, ook wanneer
+    # ze via [HOOKS] globaal geërfd worden.
+    hooks = ("beforefound", "afterfound", "nomatch", "error")
+
+    headers = ["FEATURE"] + profielen
+    rijen = []
+
+    for sleutel in sleutels:
+        rijen.append(
+            [sleutel] + [
+                str(laad_profile_waarden(naam)[sleutel])
+                for naam in profielen
+            ]
+        )
+
+    # Toon de werkelijk effectieve hook per profiel: een profielhook heeft
+    # voorrang op [HOOKS], anders wordt de globale hook geërfd.
+    for hook in hooks:
+        rijen.append(
+            [hook] + [
+                hook_command(hook, profile_name=naam)
+                for naam in profielen
+            ]
+        )
+
     breedtes = [
         max([len(headers[i])] + [len(rij[i]) for rij in rijen])
-        for i in range(3)
+        for i in range(len(headers))
     ]
 
-    print("  ".join(headers[i].ljust(breedtes[i]) for i in range(3)))
-    print("  ".join("-" * breedtes[i] for i in range(3)))
+    print(" | ".join(headers[i].ljust(breedtes[i]) for i in range(len(headers))))
+    print("-+-".join("-" * breedtes[i] for i in range(len(headers))))
+
     for rij in rijen:
-        print("  ".join(rij[i].ljust(breedtes[i]) for i in range(3)))
-
-
-def toon_hooks_status():
-    """Toon bij startup of er een afterfound hook actief is."""
-    config = laad_hooks_config()
-
-    if config is not None and config.has_option("HOOKS", "afterfound"):
-        command = config.get("HOOKS", "afterfound").strip()
-        if command:
-            print(kleur(f"🔗 afterfound hook actief: {command}", Kleuren.CYAN))
+        print(" | ".join(rij[i].ljust(breedtes[i]) for i in range(len(headers))))
 
 
 _laatste_afterfound = None
