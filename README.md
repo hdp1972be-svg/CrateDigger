@@ -39,7 +39,7 @@ Online-source support is provided by **yt-dlp**, so the exact URLs that work dep
 - ⚙️ Named profiles with profile-specific settings and hook overrides
 - 📋 Inspect available profiles with `--list-profiles`
 - 🐛 Debug live captures with `--debug`, keeping temporary WAV fragments in `/tmp`
-- 🎧 Keep unmatched audio fragments in `/tmp` with a `file://` link and expose the path to `nomatch` hooks
+- 🎧 Keep unmatched audio fragments in a configurable profile directory (or `/tmp` by default) with a `file://` link and expose the path to `nomatch` hooks
 - 🔌 Automatically rebuild the PulseAudio/Bluetooth loopback after audio-device reconnects
 
 ## Requirements
@@ -548,7 +548,7 @@ The JSON output from CrateDigger reports the recognition status and preserves th
 
 The `track` object contains the full Shazam response rather than only the fields shown in this abbreviated example.
 
-When Shazam responds successfully but does not identify the fragment, CrateDigger keeps the captured fragment as a WAV file in `/tmp` instead of deleting it. Human-readable output includes a `file://` link, and the `nomatch` hook receives `$SHAZAM_AUDIO_FILE` and `$SHAZAM_AUDIO_URL`:
+When Shazam responds successfully but does not identify the fragment, CrateDigger keeps the captured fragment as a WAV file instead of deleting it. By default it goes to `/tmp`; a profile can set `nomatch_dir` to a persistent directory. The directory is created automatically when it does not exist. Human-readable output includes a `file://` link, and the `nomatch` hook receives `$SHAZAM_AUDIO_FILE` and `$SHAZAM_AUDIO_URL`:
 
 ```text
 ❌ Geen herkenning.
@@ -565,6 +565,15 @@ JSON output includes the saved path too:
 ```
 
 A saved unmatched fragment is deliberately separate from `--keep-temp`: only no-match fragments are retained automatically, while normal recognized fragments continue to be cleaned up.
+
+For example:
+
+```ini
+[PROFILE crate]
+nomatch_dir = ~/.local/share/cratedigger/nomatch
+```
+
+`~` is expanded, and the directory is created with `mkdir -p`-style semantics when the first unmatched fragment is saved. Leave `nomatch_dir` empty to retain the previous `/tmp` behaviour.
 
 The process exit status is also useful in scripts:
 
