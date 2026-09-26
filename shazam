@@ -44,7 +44,7 @@ def laad_hooks_config():
         if not os.path.isfile(pad):
             continue
 
-        config = configparser.ConfigParser()
+        config = configparser.ConfigParser(interpolation=None)
         try:
             config.read(pad, encoding="utf-8")
         except (OSError, configparser.Error) as e:
