@@ -55,6 +55,7 @@ duration = 20
 interval = 10
 delay = 5
 loop = true
+nomatch_dir = ~/.local/share/cratedigger/nomatch/radio
 
 # Explicitly keep the global hooks in this profile as well.
 afterfound = shell exec task add "%artist - %record (%year) | (SHAZAMID: %id) SEARCHDATE: (%date)" +MUSIC
