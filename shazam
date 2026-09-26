@@ -111,16 +111,16 @@ def toon_profiles():
 
     features = [
         sleutel for sleutel in DEFAULT_PROFILE
-        if sleutel not in ("beforefound", "afterfound", "nomatch", "error")
+        if sleutel not in ("startup", "beforefound", "afterfound", "nomatch", "error")
     ]
-    features += ["beforefound", "afterfound", "nomatch", "error"]
+    features += ["startup", "beforefound", "afterfound", "nomatch", "error"]
 
     waarden = {naam: laad_profile_waarden(naam) for naam in profielen}
 
     # Global [HOOKS] values are the defaults for every profile. A profile
     # section may override an individual hook.
     def effectieve_waarde(naam, feature):
-        if feature in ("beforefound", "afterfound", "nomatch", "error"):
+        if feature in ("startup", "beforefound", "afterfound", "nomatch", "error"):
             return hook_command(feature, profile_name=naam)
         return str(waarden[naam][feature])
 
@@ -267,7 +267,7 @@ def haal_confidence(track):
     return None
 
 
-HOOK_EVENTS = ("beforefound", "afterfound", "nomatch", "error")
+HOOK_EVENTS = ("startup", "beforefound", "afterfound", "nomatch", "error")
 
 
 def hook_command(event, profile_name=None):
@@ -1469,6 +1469,7 @@ DEFAULT_PROFILE = {
     "keep_temp": False,
     "live": False,
     "recursive": False,
+    "startup": "",
     "beforefound": "",
     "afterfound": "",
     "nomatch": "",
@@ -1645,6 +1646,20 @@ async def main():
     }
     toon_profile_status(args.profile, effectieve_waarden)
     toon_hooks_status()
+
+    # Run the selected profile's startup hook once, before any audio/network
+    # work begins. This is intended for external setup such as PulseAudio
+    # sinks, loopbacks, stream duplication, device preparation, etc.
+    startup_waarden = hook_waarden(
+        source=args.profile,
+        source_type="startup",
+    )
+    startup_waarden["SHAZAM_PROFILE"] = args.profile
+    voer_hook_uit(
+        "startup",
+        startup_waarden,
+        profile_name=args.profile,
+    )
 
     if args.live:
         if args.interval < 0:
