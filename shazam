@@ -695,7 +695,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
     bijhouden of er überhaupt een niet-nul sample binnenkomt, zonder het
     WAV-bestand achteraf opnieuw te moeten lezen.
 
-    Geeft (pad, stil) terug.
+    Geeft (pad, stil, reset_requested) terug.
     """
     if shutil.which("ffmpeg") is None:
         raise RuntimeError("FFmpeg is niet geïnstalleerd (nodig voor live audio).")
@@ -840,7 +840,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
         if paused_here and process.poll() is None:
             process.send_signal(signal.SIGCONT)
 
-    return tmp_pad, not any_signal
+    return tmp_pad, not any_signal, reset_requested
 
 
 async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_temp, invoer, apparaat):
