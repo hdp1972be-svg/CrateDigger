@@ -132,7 +132,13 @@ def haal_confidence(track):
     return None
 
 
-def voer_afterfound_hook_uit(track, bron_url=None, confidence=None):
+def voer_afterfound_hook_uit(
+    track,
+    bron_url=None,
+    confidence=None,
+    source=None,
+    source_type=None,
+):
     """Voer [HOOKS] afterfound uit na een nieuwe herkenning."""
     global _laatste_afterfound
 
@@ -150,6 +156,8 @@ def voer_afterfound_hook_uit(track, bron_url=None, confidence=None):
         "SHAZAM_CONFIDENCE": "" if confidence is None else str(confidence),
         "SHAZAM_URL": str(bron_url or ""),
         "YOUTUBE_ID": youtube_id_uit_url(bron_url),
+        "SHAZAM_SOURCE": str(source or bron_url or ""),
+        "SHAZAM_SOURCE_TYPE": str(source_type or ("url" if bron_url else "")),
     }
 
     huidige = (
@@ -188,6 +196,8 @@ def voer_afterfound_hook_uit(track, bron_url=None, confidence=None):
         ("%date", "SHAZAM_DATE"),
         ("%url", "SHAZAM_URL"),
         ("%youtubeid", "YOUTUBE_ID"),
+        ("%source", "SHAZAM_SOURCE"),
+        ("%sourcetype", "SHAZAM_SOURCE_TYPE"),
     ):
         command = command.replace(placeholder, "${" + variable + "}")
 
@@ -522,6 +532,8 @@ async def herken_fragment(
     keep_temp=False,
     fragment_pad=None,
     bron_url=None,
+    source=None,
+    source_type=None,
 ):
     shazam = Shazam()
     temp_pad = None
@@ -622,6 +634,10 @@ async def herken_fragment(
                 }
                 if confidence is not None:
                     record["confidence"] = confidence
+                record["source"] = source or bron_url or ""
+                record["source_type"] = source_type or ("url" if bron_url else "")
+                if bron_url:
+                    record["youtube_id"] = youtube_id_uit_url(bron_url)
                 print(json.dumps(record, indent=2))
             else:
                 print()
@@ -631,11 +647,15 @@ async def herken_fragment(
                 print(f"Genre   : {genre or 'Onbekend'}")
                 if confidence is not None:
                     print(f"Match   : {confidence:g}")
+                if source:
+                    print(f"Bron    : {source}")
 
             voer_afterfound_hook_uit(
                 track,
                 bron_url=bron_url,
                 confidence=confidence,
+                source=source,
+                source_type=source_type,
             )
 
             return 0
@@ -1010,6 +1030,8 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
                         json_output,
                         keep_temp,
                         fragment_pad=fragment_pad,
+                        source_type="live",
+                        source=f"{invoer}:{apparaat}",
                     )
 
             except RuntimeError as fout:
@@ -1102,6 +1124,8 @@ async def batch_modus(pad, recursief, starttijd, duur, json_output, keep_temp):
                 duur,
                 json_output,
                 keep_temp,
+                source=bestand,
+                source_type="file",
             )
         except (FileNotFoundError, ValueError) as fout:
             print(f"❌ {fout}", file=sys.stderr)
@@ -1146,6 +1170,8 @@ async def watch_modus(pad, recursief, duur, json_output, keep_temp):
                         duur,
                         json_output,
                         keep_temp,
+                        source=bestand,
+                        source_type="file",
                     )
                 except (FileNotFoundError, ValueError) as fout:
                     print(f"❌ {fout}", file=sys.stderr)
@@ -1156,11 +1182,61 @@ async def watch_modus(pad, recursief, duur, json_output, keep_temp):
         return 130
 
 
+DEFAULT_PROFILE = {
+    "duration": 25,
+    "interval": 5,
+    "delay": 0,
+    "input": "alsa",
+    "device": "default",
+    "loop": False,
+    "json": False,
+    "keep_temp": False,
+    "live": False,
+    "recursive": False,
+}
+
+
+def laad_profile_waarden(naam):
+    """Laad optionele [PROFILE <naam>] waarden uit .shazamrc."""
+    waarden = dict(DEFAULT_PROFILE)
+    config = laad_hooks_config()
+
+    if config is None:
+        return waarden
+
+    sectie = f"PROFILE {naam}"
+    if not config.has_section(sectie):
+        return waarden
+
+    for sleutel in waarden:
+        if not config.has_option(sectie, sleutel):
+            continue
+
+        waarde = config.get(sectie, sleutel).strip()
+        if isinstance(waarden[sleutel], bool):
+            waarden[sleutel] = config.getboolean(sectie, sleutel)
+        elif isinstance(waarden[sleutel], int):
+            waarden[sleutel] = config.getint(sectie, sleutel)
+        else:
+            waarden[sleutel] = waarde
+
+    return waarden
+
+
 def maak_parser():
 
     parser = argparse.ArgumentParser(
         description="Herken een fragment uit een mediafile met Shazam."
     )
+
+    parser.add_argument(
+        "--profile",
+        default="default",
+        metavar="NAME",
+        help="Gebruik een profiel uit .shazamrc (default: default)",
+    )
+
+    parser.set_defaults(**DEFAULT_PROFILE)
 
     parser.add_argument(
         "--live",
@@ -1264,6 +1340,8 @@ def maak_parser():
 
 async def main():
     parser = maak_parser()
+    profiel_args, _ = parser.parse_known_args()
+    parser.set_defaults(**laad_profile_waarden(profiel_args.profile))
     args = parser.parse_args()
 
     toon_hooks_status()
@@ -1387,6 +1465,9 @@ async def main():
                 args.json,
                 args.keep_temp,
                 fragment_pad=audio_pad,
+                source=bron,
+                source_type="url",
+                bron_url=bron,
             )
         finally:
             if args.keep_temp:
@@ -1404,6 +1485,8 @@ async def main():
             args.duration,
             args.json,
             args.keep_temp,
+            source=bron,
+            source_type="file",
         )
     except FileNotFoundError:
         print(f"❌ Bestand niet gevonden: {bron}", file=sys.stderr)
