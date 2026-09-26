@@ -92,7 +92,7 @@ def toon_profile_status(naam, waarden):
 
 
 def toon_profiles():
-    """Toon alle profielen uit .shazamrc naast elkaar in tabelvorm."""
+    """Toon alle profielen in automatisch opgesplitste, terminal-brede tabellen."""
     config = laad_hooks_config()
     if config is None:
         print("Geen .shazamrc gevonden; alleen profiel 'default' is beschikbaar.")
@@ -109,43 +109,85 @@ def toon_profiles():
         profielen.remove("default")
     profielen.insert(0, "default")
 
-    sleutels = list(DEFAULT_PROFILE.keys())
-
-    # Hooks zijn profielinstellingen voor de overzichtstabel, ook wanneer
-    # ze via [HOOKS] globaal geërfd worden.
-    hooks = ("beforefound", "afterfound", "nomatch", "error")
-
-    headers = ["FEATURE"] + profielen
-    rijen = []
-
-    for sleutel in sleutels:
-        rijen.append(
-            [sleutel] + [
-                str(laad_profile_waarden(naam)[sleutel])
-                for naam in profielen
-            ]
-        )
-
-    # Toon de werkelijk effectieve hook per profiel: een profielhook heeft
-    # voorrang op [HOOKS], anders wordt de globale hook geërfd.
-    for hook in hooks:
-        rijen.append(
-            [hook] + [
-                hook_command(hook, profile_name=naam)
-                for naam in profielen
-            ]
-        )
-
-    breedtes = [
-        max([len(headers[i])] + [len(rij[i]) for rij in rijen])
-        for i in range(len(headers))
+    # Hooks are shown exactly once, as effective values per profile.
+    features = [
+        sleutel for sleutel in DEFAULT_PROFILE
+        if sleutel not in ("beforefound", "afterfound", "nomatch", "error")
     ]
+    features += ["beforefound", "afterfound", "nomatch", "error"]
 
-    print(" | ".join(headers[i].ljust(breedtes[i]) for i in range(len(headers))))
-    print("-+-".join("-" * breedtes[i] for i in range(len(headers))))
+    waarden = {naam: laad_profile_waarden(naam) for naam in profielen}
 
-    for rij in rijen:
-        print(" | ".join(rij[i].ljust(breedtes[i]) for i in range(len(headers))))
+    def effectieve_waarde(naam, feature):
+        if feature in ("beforefound", "afterfound", "nomatch", "error"):
+            return hook_command(feature, profile_name=naam)
+        return str(waarden[naam][feature])
+
+    terminal_width = shutil.get_terminal_size(fallback=(120, 24)).columns
+    feature_width = max(len("FEATURE"), max(len(x) for x in features))
+
+    # Keep the feature column fixed and split profiles into as many columns
+    # as fit the current terminal. Long values are wrapped inside their cell.
+    chunks = []
+    huidige = []
+
+    for naam in profielen:
+        kandidaat = huidige + [naam]
+        beschikbare = max(20, terminal_width - feature_width - 3)
+        kolom_breedte = max(12, beschikbare // max(1, len(kandidaat)))
+
+        # Account for the separator between columns.
+        benodigde_breedte = feature_width + 3 + len(kandidaat) * (kolom_breedte + 3) - 3
+        if huidige and benodigde_breedte > terminal_width:
+            chunks.append(huidige)
+            huidige = [naam]
+        else:
+            huidige = kandidaat
+
+    if huidige:
+        chunks.append(huidige)
+
+    def wrap(value, width):
+        value = str(value)
+        if not value:
+            return [""]
+        return [
+            value[i:i + width]
+            for i in range(0, len(value), width)
+        ]
+
+    for chunk_index, chunk in enumerate(chunks):
+        if chunk_index:
+            print()
+
+        beschikbare = max(20, terminal_width - feature_width - 3)
+        kolom_breedte = max(12, beschikbare // len(chunk))
+        headers = ["FEATURE"] + chunk
+        widths = [feature_width] + [kolom_breedte] * len(chunk)
+
+        def print_row(cells):
+            wrapped = [
+                wrap(cells[i], widths[i])
+                for i in range(len(cells))
+            ]
+            hoogte = max(len(x) for x in wrapped)
+            for regel in range(hoogte):
+                print(" | ".join(
+                    wrapped[i][regel].ljust(widths[i])
+                    if regel < len(wrapped[i]) else " " * widths[i]
+                    for i in range(len(cells))
+                ))
+
+        print_row(headers)
+        print("-+-".join("-" * width for width in widths))
+
+        for feature in features:
+            print_row(
+                [feature] + [
+                    effectieve_waarde(naam, feature)
+                    for naam in chunk
+                ]
+            )
 
 
 _laatste_afterfound = None
