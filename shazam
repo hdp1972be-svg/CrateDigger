@@ -456,7 +456,114 @@ async def herken_fragment(
 
 
 
-def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
+
+class LiveBesturing:
+    """Gedeelde terminalbesturing voor opname én wachttijden."""
+
+    def __init__(self):
+        self.terminal_fd = None
+        self.terminal_file = None
+        self.terminal_settings = None
+        self.input_queue = queue.Queue()
+        self.input_thread = None
+        self.paused = False
+
+    def start(self):
+        if os.name != "posix":
+            return
+
+        try:
+            self.terminal_file = open("/dev/tty", "rb", buffering=0)
+        except OSError:
+            return
+
+        self.terminal_fd = self.terminal_file.fileno()
+        self.terminal_settings = termios.tcgetattr(self.terminal_fd)
+        tty.setcbreak(self.terminal_fd)
+
+        terminal_noecho = termios.tcgetattr(self.terminal_fd)
+        terminal_noecho[3] &= ~termios.ECHO
+        termios.tcsetattr(
+            self.terminal_fd,
+            termios.TCSADRAIN,
+            terminal_noecho,
+        )
+
+        def lees_toetsen():
+            while True:
+                try:
+                    toets = os.read(self.terminal_fd, 1)
+                except OSError:
+                    return
+                if not toets:
+                    return
+                self.input_queue.put(toets.lower())
+
+        self.input_thread = threading.Thread(
+            target=lees_toetsen,
+            name="shazam-input",
+            daemon=True,
+        )
+        self.input_thread.start()
+        print("Druk 'p' om te pauzeren/hervatten.")
+
+    def verwerk_toetsen(self, process=None):
+        while True:
+            try:
+                toets = self.input_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            if toets != b"p":
+                continue
+
+            if self.paused:
+                if process is not None and process.poll() is None:
+                    process.send_signal(signal.SIGCONT)
+                self.paused = False
+                print("\\n▶ Continued")
+            else:
+                if process is not None and process.poll() is None:
+                    process.send_signal(signal.SIGSTOP)
+                self.paused = True
+                print("\\n⏸ Paused — press 'p' to continue")
+
+    def wacht(self, seconden):
+        """Wacht alleen zolang niet gepauzeerd; 'p' werkt tijdens de wacht."""
+        einde = time.monotonic() + seconden
+
+        while True:
+            self.verwerk_toetsen()
+
+            if self.paused:
+                time.sleep(0.1)
+                continue
+
+            resterend = einde - time.monotonic()
+            if resterend <= 0:
+                return
+
+            time.sleep(min(0.1, resterend))
+
+    def stop(self):
+        if self.terminal_fd is not None:
+            # Gooi toetsen weg die tijdens Shazam/het laatste moment zijn
+            # ingedrukt; anders kunnen ze in de shell terechtkomen.
+            termios.tcflush(self.terminal_fd, termios.TCIFLUSH)
+
+            if self.terminal_settings is not None:
+                termios.tcsetattr(
+                    self.terminal_fd,
+                    termios.TCSADRAIN,
+                    self.terminal_settings,
+                )
+
+        if self.terminal_file is not None:
+            self.terminal_file.close()
+            self.terminal_file = None
+
+
+def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=None):
     """
     Neem live audio op en controleer het PCM-signaal tijdens de opname.
 
@@ -512,52 +619,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
     )
 
     any_signal = False
-    terminal_fd = None
-    terminal_file = None
-    terminal_settings = None
-    paused = False
-    input_queue = queue.Queue()
-    input_thread = None
-
-    # Gebruik expliciet /dev/tty. Zo leest de besturing altijd de echte
-    # interactieve terminal en niet stdin van een pipe/redirection. De
-    # audiopipe van FFmpeg blijft volledig gescheiden.
-    if os.name == "posix":
-        try:
-            terminal_file = open("/dev/tty", "rb", buffering=0)
-        except OSError:
-            terminal_file = None
-
-        if terminal_file is not None:
-            terminal_fd = terminal_file.fileno()
-            terminal_settings = termios.tcgetattr(terminal_fd)
-            tty.setcbreak(terminal_fd)
-
-            terminal_noecho = termios.tcgetattr(terminal_fd)
-            terminal_noecho[3] &= ~termios.ECHO
-            termios.tcsetattr(
-                terminal_fd,
-                termios.TCSADRAIN,
-                terminal_noecho,
-            )
-
-            def lees_toetsen():
-                while True:
-                    try:
-                        toets = os.read(terminal_fd, 1)
-                    except OSError:
-                        return
-                    if not toets:
-                        return
-                    input_queue.put(toets.lower())
-
-            input_thread = threading.Thread(
-                target=lees_toetsen,
-                name="shazam-input",
-                daemon=True,
-            )
-            input_thread.start()
-            print("Druk 'p' om te pauzeren/hervatten.")
+    paused_here = False
 
     try:
         with wave.open(tmp_pad, "wb") as wav:
@@ -565,32 +627,13 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
             wav.setsampwidth(sample_width)
             wav.setframerate(sample_rate)
 
-            totaal_bytes = max(
-                1,
-                int(duur_sec * sample_rate * channels * sample_width),
-            )
             verwerkte_bytes = 0
-            vorige_sec = 0
             laatste_meter_update = 0.0
 
             while True:
-                # Verwerk alle reeds ingedrukte toetsen zonder de
-                # audiopipe te blokkeren.
-                while True:
-                    try:
-                        toets = input_queue.get_nowait()
-                    except queue.Empty:
-                        break
-
-                    if toets == b"p":
-                        if paused:
-                            process.send_signal(signal.SIGCONT)
-                            paused = False
-                            print("\n▶ Continued")
-                        else:
-                            process.send_signal(signal.SIGSTOP)
-                            paused = True
-                            print("\n⏸ Paused — press 'p' to continue")
+                if besturing is not None:
+                    besturing.verwerk_toetsen(process)
+                    paused_here = besturing.paused
 
                 leesbare, _, _ = select.select(
                     [process.stdout],
@@ -599,7 +642,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
                     0.1,
                 )
 
-                if process.stdout in leesbare and not paused:
+                if process.stdout in leesbare and not paused_here:
                     data = process.stdout.read(4096)
                     if not data:
                         break
@@ -618,58 +661,30 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
                             / len(samples)
                         )
                         peak = max(abs(sample) for sample in samples)
-
-                        if rms > 0:
-                            dbfs = 20 * math.log10(rms / 32768.0)
-                        else:
-                            dbfs = -float("inf")
-
-                        if peak > 0:
-                            peak_dbfs = 20 * math.log10(peak / 32768.0)
-                        else:
-                            peak_dbfs = -float("inf")
+                        dbfs = 20 * math.log10(rms / 32768.0) if rms > 0 else -float("inf")
+                        peak_dbfs = 20 * math.log10(peak / 32768.0) if peak > 0 else -float("inf")
 
                         now = time.monotonic()
                         if now - laatste_meter_update >= 0.5:
                             laatste_meter_update = now
-
                             meter_db = max(-60.0, min(0.0, dbfs))
                             meter_breedte = 20
-                            gevuld = int(
-                                ((meter_db + 60.0) / 60.0)
-                                * meter_breedte
-                            )
-                            meter = (
-                                "█" * gevuld
-                                + "░" * (meter_breedte - gevuld)
-                            )
-
-                            rms_text = (
-                                f"{dbfs:6.1f} dBFS"
-                                if math.isfinite(dbfs)
-                                else "  -inf dBFS"
-                            )
-                            peak_text = (
-                                f"{peak_dbfs:6.1f}"
-                                if math.isfinite(peak_dbfs)
-                                else "  -inf"
-                            )
-
+                            gevuld = int(((meter_db + 60.0) / 60.0) * meter_breedte)
+                            meter = "█" * gevuld + "░" * (meter_breedte - gevuld)
+                            rms_text = f"{dbfs:6.1f} dBFS" if math.isfinite(dbfs) else "  -inf dBFS"
+                            peak_text = f"{peak_dbfs:6.1f}" if math.isfinite(peak_dbfs) else "  -inf"
                             huidige_sec = min(
                                 duur_sec,
-                                verwerkte_bytes
-                                / (sample_rate * channels * sample_width),
+                                verwerkte_bytes / (sample_rate * channels * sample_width),
                             )
                             print(
-                                f"\rRecording sec "
-                                f"{int(huidige_sec):>2}/{duur_sec}  "
+                                f"\\rRecording sec {int(huidige_sec):>2}/{duur_sec}  "
                                 f"[{meter}] {rms_text}  peak {peak_text} dBFS",
                                 end="",
                                 flush=True,
                             )
 
-                elif paused:
-                    # Keep the input queue responsive while FFmpeg is stopped.
+                elif paused_here:
                     continue
 
             print()
@@ -694,21 +709,8 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
         ) from e
 
     finally:
-        if paused and process.poll() is None:
+        if paused_here and process.poll() is None:
             process.send_signal(signal.SIGCONT)
-        if terminal_fd is not None and terminal_settings is not None:
-            # A 'p' typed during the recognition/interval/delay phase must
-            # not leak into the shell when canonical terminal mode is
-            # restored. Clear any pending terminal input before handing the
-            # tty back to the shell.
-            termios.tcflush(terminal_fd, termios.TCIFLUSH)
-            termios.tcsetattr(
-                terminal_fd,
-                termios.TCSADRAIN,
-                terminal_settings,
-            )
-        if terminal_file is not None:
-            terminal_file.close()
 
     return tmp_pad, not any_signal
 
