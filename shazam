@@ -512,45 +512,51 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
 
     any_signal = False
     terminal_fd = None
+    terminal_file = None
     terminal_settings = None
     paused = False
     input_queue = queue.Queue()
     input_thread = None
 
-    # Lees toetsen in een aparte thread. De FFmpeg-pipe blijft daardoor
-    # volledig onafhankelijk van terminal-input; dit is robuuster dan stdin
-    # samen met process.stdout in dezelfde select()-lus te multiplexen.
-    if sys.stdin.isatty() and os.name == "posix":
-        terminal_fd = sys.stdin.fileno()
-        terminal_settings = termios.tcgetattr(terminal_fd)
-        tty.setcbreak(terminal_fd)
+    # Gebruik expliciet /dev/tty. Zo leest de besturing altijd de echte
+    # interactieve terminal en niet stdin van een pipe/redirection. De
+    # audiopipe van FFmpeg blijft volledig gescheiden.
+    if os.name == "posix":
+        try:
+            terminal_file = open("/dev/tty", "rb", buffering=0)
+        except OSError:
+            terminal_file = None
 
-        # Geen 'p' op het scherm, maar ISIG blijft actief zodat Ctrl-C werkt.
-        terminal_noecho = termios.tcgetattr(terminal_fd)
-        terminal_noecho[3] &= ~termios.ECHO
-        termios.tcsetattr(
-            terminal_fd,
-            termios.TCSADRAIN,
-            terminal_noecho,
-        )
+        if terminal_file is not None:
+            terminal_fd = terminal_file.fileno()
+            terminal_settings = termios.tcgetattr(terminal_fd)
+            tty.setcbreak(terminal_fd)
 
-        def lees_toetsen():
-            while True:
-                try:
-                    toets = os.read(terminal_fd, 1)
-                except OSError:
-                    return
-                if not toets:
-                    return
-                input_queue.put(toets.lower())
+            terminal_noecho = termios.tcgetattr(terminal_fd)
+            terminal_noecho[3] &= ~termios.ECHO
+            termios.tcsetattr(
+                terminal_fd,
+                termios.TCSADRAIN,
+                terminal_noecho,
+            )
 
-        input_thread = threading.Thread(
-            target=lees_toetsen,
-            name="shazam-input",
-            daemon=True,
-        )
-        input_thread.start()
-        print("Druk 'p' om te pauzeren/hervatten.")
+            def lees_toetsen():
+                while True:
+                    try:
+                        toets = os.read(terminal_fd, 1)
+                    except OSError:
+                        return
+                    if not toets:
+                        return
+                    input_queue.put(toets.lower())
+
+            input_thread = threading.Thread(
+                target=lees_toetsen,
+                name="shazam-input",
+                daemon=True,
+            )
+            input_thread.start()
+            print("Druk 'p' om te pauzeren/hervatten.")
 
     try:
         with wave.open(tmp_pad, "wb") as wav:
@@ -646,6 +652,8 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
                 termios.TCSADRAIN,
                 terminal_settings,
             )
+        if terminal_file is not None:
+            terminal_file.close()
 
     return tmp_pad, not any_signal
 
