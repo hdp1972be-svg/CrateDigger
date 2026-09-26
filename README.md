@@ -41,6 +41,7 @@ Online-source support is provided by **yt-dlp**, so the exact URLs that work dep
 - 🐛 Debug live captures with `--debug`, keeping temporary WAV fragments in `/tmp`
 - 🎧 Keep unmatched audio fragments in a configurable profile directory (or `/tmp` by default) with a `file://` link and expose the path to `nomatch` hooks
 - 🔌 Automatically rebuild the PulseAudio/Bluetooth loopback after audio-device reconnects
+- 🔄 Fall back to the default/available PulseAudio monitor when Bluetooth is unavailable
 
 ## Requirements
 
@@ -445,10 +446,11 @@ CrateDigger includes `scripts/setup-radio-audio.sh` for preparing a PulseAudio c
 
 1. Creates a `shazam_sink` null sink when needed.
 2. Finds a Bluetooth A2DP monitor source unless one is explicitly configured.
-3. Creates a PulseAudio loopback from that monitor into `shazam_sink`.
-4. Uses **100 ms loopback latency by default**.
-5. Reuses an existing matching loopback when its latency is already correct.
-6. Recreates the matching loopback when its latency differs.
+3. Falls back to an explicitly configured PulseAudio source or the default PulseAudio sink monitor when Bluetooth is unavailable.
+4. Creates a PulseAudio loopback from the selected source into `shazam_sink`.
+5. Uses **100 ms loopback latency by default**.
+6. Removes stale loopbacks feeding `shazam_sink` before creating the current route.
+7. The reconnect watcher reruns the setup when audio devices change, so a returning Bluetooth device is selected automatically.
 
 The 100 ms default is intentional: lower loopback latency can produce unstable/noisy capture on some PulseAudio/Bluetooth setups even when direct recording from the Bluetooth monitor is clean. The setup script also removes stale loopbacks feeding `shazam_sink` before creating the current route, so a Bluetooth reconnect does not leave an old monitor connected.
 
@@ -472,6 +474,7 @@ The setup script accepts these environment variables:
 - `SHAZAM_SINK_DESCRIPTION` — sink description; default `ShazamSink`
 - `SHAZAM_LOOPBACK_LATENCY_MS` — loopback latency; default `100`
 - `SHAZAM_AUDIO_SOURCE` — explicit PulseAudio source override
+- `SHAZAM_AUDIO_FALLBACK_SOURCE` — explicit fallback source used when no Bluetooth A2DP monitor is available
 
 The source override deliberately uses `SHAZAM_AUDIO_SOURCE`; `SHAZAM_SOURCE` is reserved by CrateDigger for the original recognition source exposed to hooks.
 
@@ -491,6 +494,8 @@ pactl load-module module-loopback \
 ```
 
 Then capture from `shazam_sink.monitor`:
+
+If Bluetooth is unavailable, the automated setup uses `SHAZAM_AUDIO_FALLBACK_SOURCE` when set; otherwise it tries the default PulseAudio sink monitor and then another available monitor source. This keeps the `radio` profile usable when the Bluetooth device is temporarily disconnected.
 
 ```bash
 ./shazam --live --input pulse --device shazam_sink.monitor --loop
