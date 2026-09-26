@@ -94,7 +94,7 @@ def voer_afterfound_hook_uit(track):
         ("%id", "SHAZAM_ID"),
         ("%date", "SHAZAM_DATE"),
     ):
-        command = command.replace(placeholder, " + variable + ")
+        command = command.replace(placeholder, "${" + variable + "}")
 
     omgeving = os.environ.copy()
     omgeving.update(waarden)
