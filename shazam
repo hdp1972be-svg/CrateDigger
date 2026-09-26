@@ -1645,7 +1645,6 @@ async def main():
         if hasattr(args, sleutel)
     }
     toon_profile_status(args.profile, effectieve_waarden)
-    toon_hooks_status()
 
     # Run the selected profile's startup hook once, before any audio/network
     # work begins. This is intended for external setup such as PulseAudio
