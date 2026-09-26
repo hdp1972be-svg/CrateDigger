@@ -42,7 +42,7 @@ json = false
 
 # PulseAudio system-output capture.
 # Create the sink and mirror the first available Bluetooth monitor into it.
-startup = shell exec pactl list short sinks | awk '$2 == "shazam_sink" {found=1} END {if (!found) system("pactl load-module module-null-sink sink_name=shazam_sink sink_properties=device.description=ShazamSink")}'; source="$(pactl list short sources | awk '$2 ~ /^bluez_sink\\..*\\.monitor$/ {print $2; exit}')"; [ -z "$source" ] || pactl list short modules | grep -Fq "source=$source" || pactl load-module module-loopback source="$source" sink=shazam_sink latency_msec=20
+startup = shell exec bash scripts/setup-radio-audio.sh
 live = true
 input = pulse
 device = shazam_sink.monitor
