@@ -109,7 +109,6 @@ def toon_profiles():
         profielen.remove("default")
     profielen.insert(0, "default")
 
-    # Hooks are shown exactly once, as effective values per profile.
     features = [
         sleutel for sleutel in DEFAULT_PROFILE
         if sleutel not in ("beforefound", "afterfound", "nomatch", "error")
@@ -118,6 +117,8 @@ def toon_profiles():
 
     waarden = {naam: laad_profile_waarden(naam) for naam in profielen}
 
+    # Global [HOOKS] values are the defaults for every profile. A profile
+    # section may override an individual hook.
     def effectieve_waarde(naam, feature):
         if feature in ("beforefound", "afterfound", "nomatch", "error"):
             return hook_command(feature, profile_name=naam)
@@ -126,8 +127,8 @@ def toon_profiles():
     terminal_width = shutil.get_terminal_size(fallback=(120, 24)).columns
     feature_width = max(len("FEATURE"), max(len(x) for x in features))
 
-    # Keep the feature column fixed and split profiles into as many columns
-    # as fit the current terminal. Long values are wrapped inside their cell.
+    # Split profile columns to fit the current terminal. A long value is
+    # wrapped inside its cell rather than expanding the whole table.
     chunks = []
     huidige = []
 
@@ -135,9 +136,10 @@ def toon_profiles():
         kandidaat = huidige + [naam]
         beschikbare = max(20, terminal_width - feature_width - 3)
         kolom_breedte = max(12, beschikbare // max(1, len(kandidaat)))
-
-        # Account for the separator between columns.
-        benodigde_breedte = feature_width + 3 + len(kandidaat) * (kolom_breedte + 3) - 3
+        benodigde_breedte = (
+            feature_width + 3 +
+            len(kandidaat) * (kolom_breedte + 3) - 3
+        )
         if huidige and benodigde_breedte > terminal_width:
             chunks.append(huidige)
             huidige = [naam]
