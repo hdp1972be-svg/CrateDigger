@@ -44,95 +44,11 @@ Online-source support is provided by **yt-dlp**, so the exact URLs that work dep
   - `pydub`
   - `shazamio`
 
-### What the dependencies do
-
-#### yt-dlp — obtaining online media
-
-**yt-dlp** is responsible for retrieving media from supported online URLs.
-
-It handles source-specific extraction, format selection, and browser-cookie authentication. The script can therefore treat the downloaded result as an ordinary media file rather than implementing each site's changing extraction mechanisms itself.
-
-> yt-dlp is only needed for online URLs. Local media files and live audio bypass it completely. Actual site support depends on what the installed yt-dlp version can extract.
-
-#### FFmpeg — decoding and converting media
-
-**FFmpeg** is the media-processing engine underneath the audio extraction step.
-
-It allows the project to work with different audio/video containers and codecs and to extract the small section of audio that is actually sent to Shazam.
-
-#### pydub — convenient audio manipulation
-
-**pydub** provides the higher-level Python interface used for manipulating extracted audio and selecting the requested time range.
-
-#### ShazamIO — music recognition
-
-**ShazamIO** is the Python interface used to submit the selected audio fragment to Shazam's recognition service and retrieve the recognition result.
-
-#### aiohttp — asynchronous HTTP
-
-**aiohttp** provides asynchronous HTTP functionality used by the ShazamIO stack.
-
-### Dependency relationship
-
-For online media:
-
-```
-                    Online URL
-                         │
-                         ▼
-                      yt-dlp
-                         │
-                         ▼
-                  downloaded media
-                         │
-                         ▼
-                      FFmpeg
-                         │
-                         ▼
-                    pydub audio
-                         │
-                         ▼
-                selected audio fragment
-                         │
-                         ▼
-                    ShazamIO
-                         │
-                         ▼
-                 Shazam recognition
-                         │
-                         ▼
-                   song + artist
-```
-
-For local media, the yt-dlp stage is skipped. For live audio, FFmpeg captures directly from ALSA, PulseAudio, or JACK.
-
-### Installing the dependencies
-
-**Debian/Ubuntu:**
-
-```bash
-sudo apt install ffmpeg
-```
-
-Then:
-
-```bash
-python3 -m pip install aiohttp pydub shazamio
-```
-
-And make sure yt-dlp is available:
-
-```bash
-which yt-dlp
-yt-dlp --version
-ffmpeg -version
-```
-
 ## Usage
 
 ### Online URLs
 
-Any HTTP(S) URL that the installed yt-dlp can extract can be used. For example:
+Any HTTP(S) URL that the installed yt-dlp can extract can be used:
 
 ```bash
 ./shazam 'https://www.youtube.com/watch?v=VIDEO_ID'
@@ -150,98 +66,24 @@ The default is to analyze a **25-second** fragment.
 ./shazam 'https://www.youtube.com/watch?v=VIDEO_ID' -t 10:00
 ```
 
-The `--time` option accepts:
-
-- seconds: `90`
-- minutes/seconds: `1:30`
-- hours/minutes/seconds: `1:02:30`
-
-If the URL contains a YouTube `t=` parameter, that timestamp is used automatically. An explicit `-t/--time` takes precedence.
+The `--time` option accepts seconds, `MM:SS`, or `HH:MM:SS`. If the URL contains a YouTube `t=` parameter, that timestamp is used automatically. An explicit `-t/--time` takes precedence.
 
 ### Local media file
-
-The same tool works on local audio/video files:
 
 ```bash
 ./shazam recording.mp3
 ```
 
-The media file is not downloaded; the selected fragment is extracted locally.
+Local media bypasses yt-dlp.
 
 ### Live audio
 
-Use `--live` to listen to a system audio input:
-
 ```bash
-./shazam --live
-```
-
-Select the backend with `--input`:
-
-```bash
-./shazam --live --input alsa
-./shazam --live --input pulse
-./shazam --live --input jack
-```
-
-By default, one **25-second** capture is made and sent to Shazam.
-
-With `--loop`, the tool keeps taking new captures:
-
-```bash
-./shazam --live -d 15 --interval 5 --loop
-```
-
-This gives you:
-
-```text
-capture 15s
-    ↓
-Shazam
-    ↓
-wait 5s
-    ↓
-capture 15s
-    ↓
-Shazam
-    ↓
-...
-```
-
-#### Delay after a successful match
-
-`--delay` adds an additional wait after a song has been successfully recognized:
-
-```bash
-./shazam --live --input pulse --loop -d 25 --interval 5 --delay 10
-```
-
-The input source can be selected explicitly with `--device`:
-
-```bash
-./shazam --live --input alsa --device hw:1
 ./shazam --live --input pulse --device default
-./shazam --live --input jack --device system:capture_1
+./shazam --live --input pulse --loop --interval 5 --delay 10
 ```
 
-Press `Ctrl-C` to stop. During live mode, `p` pauses/resumes and `n` discards the current cycle and starts a fresh recording.
-
-### Interactive live controls
-
-Looping live recognition has keyboard controls directly from the terminal:
-
-- **`p`** — pause/resume the current live capture
-- **`n`** — discard the current capture or interrupt the current wait and start a fresh recording from 0s
-
-The controls also work during `--interval` and `--delay` waits.
-
-A live capture displays a real-time level meter based on the PCM audio actually received by FFmpeg:
-
-```text
-Recording sec  24/25  [███████████████░░░░░] -12.1 dBFS  peak -1.6 dBFS
-```
-
-If the captured PCM contains no non-zero samples, the program does not send the silent recording to Shazam.
+During live mode, `p` pauses/resumes and `n` discards the current cycle and starts a fresh recording. A real-time PCM level meter is displayed. Completely silent captures are not sent to Shazam.
 
 #### PulseAudio system-output capture
 
@@ -259,7 +101,7 @@ Then list the available monitor sources:
 pactl list short sources
 ```
 
-Route the desired monitor into the null sink with `module-loopback`:
+Route the desired monitor into the null sink:
 
 ```bash
 pactl load-module module-loopback \
@@ -268,15 +110,13 @@ pactl load-module module-loopback \
     latency_msec=20
 ```
 
-The source shown above is an example; the monitor name depends on the active PulseAudio device.
+The BlueZ monitor name above is an example; the actual name depends on the active device.
 
-Shazam can then listen to the null-sink monitor:
+Then:
 
 ```bash
 ./shazam --live --input pulse --device shazam_sink.monitor --loop
 ```
-
-This is useful when the audio you want to recognize is already playing through the normal system output.
 
 ## `afterfound` hooks
 
@@ -291,33 +131,79 @@ The first existing configuration file from these locations is used:
 ~/.config/shazam/.shazamrc
 ```
 
-Example:
+### Example: dump every discovered track into a Taskwarrior MUSIC queue
+
+One deliberately simple way to use CrateDigger is to let the hook turn every newly recognized track into a Taskwarrior task tagged `MUSIC`:
 
 ```ini
 [HOOKS]
 afterfound = shell exec task add "%artist %record %id %date" +MUSIC
 ```
 
-Available placeholders:
+That's it.
 
-| Placeholder | Environment variable | Value |
-|---|---|---|
-| `%artist` | `SHAZAM_ARTIST` | Recognized artist |
-| `%record` | `SHAZAM_RECORD` | Recognized track title |
-| `%id` | `SHAZAM_ID` | Shazam track key |
-| `%date` | `SHAZAM_DATE` | Current date, ISO format |
-| `%url` | `SHAZAM_URL` | Original source URL |
-| `%youtubeid` | `YOUTUBE_ID` | YouTube video ID, when applicable |
+For example, a live crate-digging session can produce:
 
-The values are also exported as environment variables to the shell command. A leading `shell exec ` is optional.
+```text
+Created task 1253.
+Created task 1254.
+Created task 1255.
+...
+```
+
+and:
+
+```bash
+task +MUSIC
+```
+
+becomes your music-discovery queue.
+
+This keeps the responsibilities nicely separated:
+
+```text
+CrateDigger
+    ↓
+recognize track
+    ↓
+afterfound hook
+    ↓
+Taskwarrior +MUSIC
+    ↓
+your downloader / acquisition script
+    ↓
+actual audio crate
+```
+
+CrateDigger does not need to know how you ultimately acquire or organize the audio. The hook is just the bridge.
+
+That's also a useful example of why `afterfound` is deliberately a shell hook rather than hard-coded Taskwarrior integration: **Unix plumbing stays Unix plumbing.**
+
+### Source URL and YouTube ID
+
+For URL-based recognition, the hook also exposes:
+
+- `%url` — original source URL
+- `%youtubeid` — extracted YouTube video ID, when applicable
+- `%artist` — recognized artist
+- `%record` — recognized title
+- `%id` — Shazam track key
+- `%date` — current date
+
+For example:
+
+```ini
+[HOOKS]
+afterfound = shell exec task add "%artist %record %id %date" +MUSIC
+```
+
+The values are also exported as environment variables to the shell command.
 
 If the same artist/title/Shazam-ID combination is recognized again during the same running process, the hook is skipped to avoid duplicate actions.
 
 Hook failures do not invalidate an otherwise successful Shazam recognition; a non-zero hook exit status is reported as a warning.
 
 ## JSON output
-
-For scripts and other automation:
 
 ```bash
 ./shazam 'https://www.youtube.com/watch?v=VIDEO_ID' --json
@@ -335,81 +221,18 @@ With no match:
 {}
 ```
 
-## CLI reference
-
-```
-usage: shazam [-h] [-t TIME] [-d DURATION] [--json] [--keep-temp]
-              [--live] [--input {alsa,pulse,jack}] [--interval INTERVAL]
-              [--delay DELAY] [--device DEVICE] [--loop]
-              [MEDIAFILE_OR_YOUTUBE_URL]
-
-positional arguments:
-  MEDIAFILE_OR_YOUTUBE_URL
-                        Local media file or online URL
-
-options:
-  -h, --help            Show this help message and exit
-  -t, --time TIME       Start time for recognition
-  -d, --duration SECONDS
-                        Number of seconds to analyze (default: 25)
-  --json                Output recognition result as JSON
-  --keep-temp           Keep the temporary downloaded audio
-  --live                Listen to live audio
-  --input {alsa,pulse,jack}
-                        Live audio backend (default: alsa)
-  --interval SECONDS    Wait between live captures (default: 5)
-  --delay SECONDS       Wait after a found song (default: 0)
-  --device DEVICE       Input source (default: default)
-  --loop                Repeat live captures until interrupted
-```
-
 ## How it works
 
-For an online URL:
+For online media:
 
-```
-Online URL
-    │
-    ▼
-yt-dlp
-    │
-    ▼
-temporary media
-    │
-    ▼
-extract selected time window
-    │
-    ▼
-ShazamIO
-    │
-    ▼
-title + artist
+```text
+Online URL → yt-dlp → media → FFmpeg/pydub → ShazamIO → track
 ```
 
-For live mode:
+For live audio:
 
-```
-ALSA / PulseAudio / JACK
-          │
-          ▼
-       FFmpeg
-          │
-          ▼
-    16 kHz mono WAV
-          │
-          ▼
-       ShazamIO
-          │
-          ▼
-     title + artist
-          │
-          ├── --delay
-          │
-          ▼
-     --interval
-          │
-          ▼
-    next capture
+```text
+ALSA / PulseAudio / JACK → FFmpeg → PCM WAV → ShazamIO → track
 ```
 
 The important part is that you don't have to manually download media, cut out a fragment, open a music-recognition service, and feed it the audio. The whole operation is one command.
@@ -426,31 +249,10 @@ Instead of playing the source and holding your phone up to Shazam:
 
 That's it.
 
-It's particularly handy for:
-
-- 🎧 DJ mixes
-- 🔊 radio mixes
-- 🎵 long playlists
-- 🪩 live sets
-- 🎚️ remix compilations
-- 📼 old recordings
-- 🌐 random online media
+It's particularly handy for DJ mixes, radio mixes, live sets, remix compilations, old recordings, and random online media.
 
 **Basically: Shazam for crate digging — arbitrary points in online media, local files, or whatever is currently playing.**
 
 ## License
 
 See the repository license if one is added.
-
-### Source URL / YouTube ID in Taskwarrior annotations
-
-For URL-based recognition, the hook also exposes `%url` and `%youtubeid`. Taskwarrior cannot create a task and annotate it in the same command, so capture the created task ID and then annotate it.
-
-```ini
-[HOOKS]
-afterfound = shell exec id=$(task add "%artist %record %id %date" +MUSIC | sed -n 's/.*Created task \([0-9][0-9]*\).*/\1/p'); [ -n "$id" ] && task "$id" annotate "source: %url youtubeid: %youtubeid"
-```
-
-Taskwarrior's `annotate` command adds a note to an existing task; annotations are searchable text.
-
-For live/PulseAudio recognition, `%url` and `%youtubeid` are empty.
