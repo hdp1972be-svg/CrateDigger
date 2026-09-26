@@ -219,6 +219,57 @@ Then:
 ./shazam --live --input pulse --device shazam_sink.monitor --loop
 ```
 
+## Shazam metadata and hook variables
+
+CrateDigger passes the Shazam track dictionary through without reducing it to a fixed hand-picked field list. ShazamIO documents the recognition result as a dictionary and provides serialization for the full track response, including track metadata, artwork and provider links. citeturn0search0turn0search3
+
+For every scalar value in the returned `track` object, CrateDigger creates a `SHAZAM_*` environment variable by flattening nested dictionaries and arrays.
+
+Typical fields include:
+
+| Shazam data | Hook variable |
+|---|---|
+| track key | `$SHAZAM_KEY` / `$SHAZAM_ID` |
+| title | `$SHAZAM_TITLE` / `$SHAZAM_RECORD` |
+| artist/subtitle | `$SHAZAM_SUBTITLE` / `$SHAZAM_ARTIST` |
+| artist metadata | `$SHAZAM_ARTISTS_0_*` |
+| artwork | `$SHAZAM_IMAGES_*` |
+| genres | `$SHAZAM_GENRES_PRIMARY` / `$SHAZAM_GENRES_*` |
+| provider/hub data | `$SHAZAM_HUB_*` |
+| sections | `$SHAZAM_SECTIONS_0_*`, `$SHAZAM_SECTIONS_1_*`, ... |
+| raw track response | `$SHAZAM_JSON` / `$SHAZAM_TRACK_JSON` |
+
+The exact set is intentionally **not hard-coded**. New scalar fields returned by Shazam automatically become available as new variables. Arrays use zero-based numeric path components. Nested objects are flattened using uppercase underscore-separated names.
+
+For example, `images.coverarthq` becomes `$SHAZAM_IMAGES_COVERARTHQ`, and `sections[0].type` becomes `$SHAZAM_SECTIONS_0_TYPE`.
+
+Empty/null fields are exported as an empty string. Boolean values become `true` or `false`.
+
+The complete original `track` dictionary is also available as compact JSON in `$SHAZAM_JSON` (with `$SHAZAM_TRACK_JSON` as an alias). This is useful when a hook needs metadata that is nested, array-based, or not convenient to address as an individual shell variable.
+
+### Metadata placeholders
+
+Every generated `SHAZAM_*` variable can also be addressed as a hook placeholder by removing the `SHAZAM_` prefix and using lowercase. For example:
+
+`%title` → `$SHAZAM_TITLE`
+
+`%images_coverarthq` → `$SHAZAM_IMAGES_COVERARTHQ`
+
+`%sections_0_type` → `$SHAZAM_SECTIONS_0_TYPE`
+
+The existing friendly placeholders remain available: `%artist`, `%record`, `%id`, `%genre`, `%confidence`, `%date`, `%url`, `%youtubeid`, `%source`, `%sourcetype`, `%error`, and `%exitcode`.
+
+CrateDigger also derives `$SHAZAM_YEAR` when a recognizable four-digit year is present in Shazam release-date/year fields.
+
+A hook can therefore inspect everything without waiting for CrateDigger itself to learn about every new Shazam field:
+
+```ini
+[HOOKS]
+afterfound = shell exec printf '%s | %s | %s | %s\\n' "$SHAZAM_ARTIST" "$SHAZAM_RECORD" "$SHAZAM_YEAR" "$SHAZAM_GENRES_PRIMARY"
+```
+
+For arbitrary nested data, `$SHAZAM_JSON` is the authoritative escape hatch.
+
 ## Lifecycle hooks
 
 CrateDigger supports five lifecycle events:
@@ -476,18 +527,22 @@ For example, given a JSON record:
 
 the same pattern can be used to build a CSV file, with `@csv` taking care of commas and quoting.
 
-The JSON output from CrateDigger also reports the recognition status:
+The JSON output from CrateDigger reports the recognition status and preserves the complete Shazam track dictionary:
 
 ```json
 {
   "status": "found",
-  "title": "Example Song",
-  "artist": "Example Artist",
-  "genre": "Dance",
+  "track": {
+    "title": "Example Song",
+    "subtitle": "Example Artist"
+  },
+  "confidence": 0.94,
   "source": "https://example.com/source",
   "source_type": "url"
 }
 ```
+
+The `track` object contains the full Shazam response rather than only the fields shown in this abbreviated example.
 
 When Shazam responds successfully but does not identify the fragment:
 
@@ -578,19 +633,20 @@ Hook failures do not invalidate an otherwise successful Shazam recognition; a no
 ./shazam 'https://www.youtube.com/watch?v=VIDEO_ID' --json
 ```
 
-Successful recognition returns:
+Successful recognition returns the complete Shazam track object:
 
 ```json
 {
   "status": "found",
-  "title": "Example Song",
-  "artist": "Example Artist",
-  "genre": "Dance",
+  "track": {
+    "title": "Example Song",
+    "subtitle": "Example Artist"
+  },
   "confidence": 0.94
 }
 ```
 
-The `confidence` field is included only when Shazam supplies a score.
+The abbreviated `track` object above is illustrative; CrateDigger preserves all fields returned by Shazam. The `confidence` field is included as `null` when no recognition score was available.
 
 With no match:
 
