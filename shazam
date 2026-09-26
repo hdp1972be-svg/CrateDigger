@@ -19,6 +19,8 @@ import time
 import wave
 import math
 import array
+import configparser
+from datetime import date
 from urllib.parse import parse_qs, urlsplit
 
 import aiohttp
@@ -27,6 +29,84 @@ import asyncio
 
 from pydub import AudioSegment
 from shazamio import Shazam
+
+
+def laad_hooks_config():
+    """Laad de eerste aanwezige .shazamrc uit de standaardlocaties."""
+    paden = [
+        os.path.join(os.getcwd(), ".shazamrc"),
+        os.path.expanduser("~/.shazamrc"),
+        os.path.expanduser("~/.config/shazam/shazamrc"),
+        os.path.expanduser("~/.config/shazam/.shazamrc"),
+    ]
+
+    for pad in paden:
+        if not os.path.isfile(pad):
+            continue
+
+        config = configparser.ConfigParser()
+        try:
+            config.read(pad, encoding="utf-8")
+        except (OSError, configparser.Error) as e:
+            print(f"⚠️  Kan {pad} niet lezen: {e}", file=sys.stderr)
+            return None
+
+        return config
+
+    return None
+
+
+def voer_afterfound_hook_uit(track):
+    """Voer [HOOKS] afterfound uit na een succesvolle herkenning."""
+    config = laad_hooks_config()
+
+    if config is None or not config.has_option("HOOKS", "afterfound"):
+        return
+
+    command = config.get("HOOKS", "afterfound").strip()
+
+    if command.lower().startswith("shell exec "):
+        command = command[11:].lstrip()
+
+    if not command:
+        return
+
+    waarden = {
+        "SHAZAM_ARTIST": str(track.get("subtitle") or ""),
+        "SHAZAM_RECORD": str(track.get("title") or ""),
+        "SHAZAM_ID": str(track.get("key") or ""),
+        "SHAZAM_DATE": date.today().isoformat(),
+    }
+
+    for placeholder, variable in (
+        ("%artist", "SHAZAM_ARTIST"),
+        ("%record", "SHAZAM_RECORD"),
+        ("%id", "SHAZAM_ID"),
+        ("%date", "SHAZAM_DATE"),
+    ):
+        command = command.replace(placeholder, " + variable + ")
+
+    omgeving = os.environ.copy()
+    omgeving.update(waarden)
+
+    try:
+        resultaat = subprocess.run(
+            command,
+            shell=True,
+            env=omgeving,
+            check=False,
+        )
+    except OSError as e:
+        print(f"⚠️  afterfound hook kon niet worden gestart: {e}", file=sys.stderr)
+        return
+
+    if resultaat.returncode != 0:
+        print(
+            f"⚠️  afterfound hook eindigde met exit code "
+            f"{resultaat.returncode}.",
+            file=sys.stderr,
+        )
+
 
 
 def zet_tijd_om_naar_ms(tijd_str):
@@ -433,6 +513,8 @@ async def herken_fragment(
                 print("✅ Nummer gevonden")
                 print(f"Titel   : {track.get('title')}")
                 print(f"Artiest : {track.get('subtitle')}")
+
+            voer_afterfound_hook_uit(track)
 
             return 0
 
