@@ -649,6 +649,7 @@ class LiveBesturing:
         self.input_thread = None
         self.paused = False
         self.reset_requested = False
+        self.quit_requested = False
 
     def start(self):
         if os.name != "posix":
@@ -696,6 +697,13 @@ class LiveBesturing:
             except queue.Empty:
                 break
 
+            if toets == b"q":
+                self.quit_requested = True
+                if process is not None and process.poll() is None:
+                    process.send_signal(signal.SIGTERM)
+                print("\n⏹ Quit requested")
+                continue
+
             if toets == b"n":
                 self.reset_requested = True
                 if process is not None and process.poll() is None:
@@ -718,15 +726,18 @@ class LiveBesturing:
                 print("\n⏸ Paused — press 'p' to continue")
 
     def wacht(self, seconden):
-        """Wacht met p-pauze en n-reset. Geeft True terug als n werd ingedrukt."""
+        """Wacht met p-pauze en n-reset. Geeft reset/quit-status terug."""
         einde = time.monotonic() + seconden
 
         while True:
             self.verwerk_toetsen()
 
+            if self.quit_requested:
+                return "quit"
+
             if self.reset_requested:
                 self.reset_requested = False
-                return True
+                return "reset"
 
             if self.paused:
                 time.sleep(0.1)
@@ -889,6 +900,9 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
         stderr = process.stderr.read().decode(errors="replace").strip()
         returncode = process.wait()
 
+        if besturing is not None and besturing.quit_requested:
+            return tmp_pad, not any_signal, False, True
+
         if returncode != 0:
             raise RuntimeError(
                 f"{invoer} audio kon niet worden opgenomen van "
@@ -909,7 +923,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
         if paused_here and process.poll() is None:
             process.send_signal(signal.SIGCONT)
 
-    return tmp_pad, not any_signal, reset_requested
+    return tmp_pad, not any_signal, reset_requested, besturing.quit_requested if besturing is not None else False
 
 
 async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_temp, invoer, apparaat):
@@ -928,9 +942,12 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
             fragment_pad = None
 
             try:
-                fragment_pad, stil, reset_opname = neem_live_audio_op(
+                fragment_pad, stil, reset_opname, quit_opname = neem_live_audio_op(
                     duur_sec, invoer, apparaat, besturing
                 )
+
+                if quit_opname:
+                    return 130
 
                 if reset_opname:
                     continue
@@ -970,12 +987,18 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
 
             if interval_sec > 0:
                 print(f"Volgende opname over {interval_sec}s...")
-                if besturing.wacht(interval_sec):
+                wacht_resultaat = besturing.wacht(interval_sec)
+                if wacht_resultaat == "quit":
+                    return 130
+                if wacht_resultaat == "reset":
                     continue
 
             if code == 0 and delay_sec > 0:
                 print(f"Delay na gevonden nummer: {delay_sec}s...")
-                if besturing.wacht(delay_sec):
+                wacht_resultaat = besturing.wacht(delay_sec)
+                if wacht_resultaat == "quit":
+                    return 130
+                if wacht_resultaat == "reset":
                     continue
     finally:
         besturing.stop()
