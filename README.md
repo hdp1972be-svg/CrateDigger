@@ -116,7 +116,7 @@ Local media bypasses yt-dlp.
 ./shazam --live --input pulse --loop --interval 5 --delay 10
 ```
 
-During live mode, `p` pauses/resumes and `n` discards the current cycle and starts a fresh recording. A real-time PCM level meter is displayed. Completely silent captures are not sent to Shazam.
+During live mode, `p` pauses/resumes, `n` discards the current cycle and starts a fresh recording, and `q` quits. `Ctrl-C` also aborts cleanly and restores the terminal's original settings. A real-time PCM level meter is displayed. Completely silent captures are not sent to Shazam.
 
 ### Live input options
 
@@ -180,14 +180,14 @@ Then:
 
 ## Qt wrapper
 
-The CLI remains the primary interface, but CrateDigger also includes a thin **PyQt6** wrapper that puts the existing CLI inside a Qt window.
+The CLI remains the primary interface, but CrateDigger also includes a thin **PyQt5** wrapper that puts the existing CLI inside a Qt window.
 
 The wrapper does **not** reimplement or modify the recognition logic in `./shazam`. It runs the unchanged CLI in a pseudo-terminal (PTY), so the CLI still sees a real terminal and keeps its existing ANSI colours, progress updates, and live `p` / `n` controls.
 
-Install PyQt6 if you want the wrapper:
+Install PyQt5 if you want the wrapper:
 
 ```bash
-python -m pip install PyQt6
+python -m pip install PyQt5
 ```
 
 Run it exactly like the CLI:
@@ -264,6 +264,73 @@ actual audio crate
 CrateDigger does not need to know how you ultimately acquire or organize the audio. The hook is just the bridge.
 
 That's also a useful example of why `afterfound` is deliberately a shell hook rather than hard-coded Taskwarrior integration: **Unix plumbing stays Unix plumbing.**
+
+### JSON and CSV pipelines
+
+For automation, JSON output is useful as a stable machine-readable representation of each recognition. A shell pipeline can then transform that JSON with normal Unix tools such as `jq`.
+
+For example, keep a JSONL history of recognized tracks:
+
+```ini
+[HOOKS]
+afterfound = shell exec sh -c 'printf "%s\\n" "$(jq -nc --arg artist "$SHAZAM_ARTIST" --arg title "$SHAZAM_RECORD" --arg genre "$SHAZAM_GENRE" --arg id "$SHAZAM_ID" --arg date "$SHAZAM_DATE" --arg url "$SHAZAM_URL" --arg youtubeid "$YOUTUBE_ID" '''{artist:$artist,title:$title,genre:$genre,id:$id,date:$date,url:$url,youtubeid:$youtubeid}''')" >> ~/.local/share/cratedigger.jsonl'
+```
+
+JSONL is preferable to appending separate JSON objects to one `.json` file because every line remains an independent valid JSON value.
+
+To turn recognition data into CSV, `jq` can produce properly quoted CSV fields:
+
+```bash
+jq -r '[.artist,.title,.genre,.id,.date,.url,.youtubeid] | @csv'
+```
+
+For example, given a JSON record:
+
+```json
+{
+  "artist": "Example Artist",
+  "title": "Example Song",
+  "genre": "Dance",
+  "id": "123456789",
+  "date": "2026-09-26",
+  "url": "https://example.com/source",
+  "youtubeid": "VIDEO_ID"
+}
+```
+
+the same pattern can be used to build a CSV file, with `@csv` taking care of commas and quoting.
+
+The JSON output from CrateDigger also reports the recognition status:
+
+```json
+{
+  "status": "found",
+  "title": "Example Song",
+  "artist": "Example Artist",
+  "genre": "Dance"
+}
+```
+
+When Shazam responds successfully but does not identify the fragment:
+
+```json
+{
+  "status": "no_match"
+}
+```
+
+The process exit status is also useful in scripts:
+
+```text
+0   track found
+1   no match
+2   network / operational error
+130 user abort (Ctrl-C or q)
+```
+
+### Terminal cleanup
+
+Live mode temporarily puts the terminal into cbreak/noecho mode so that single-key controls work. CrateDigger saves the original tty settings and restores them when live mode exits, including when `Ctrl-C` interrupts an active recording or wait. This prevents the shell from being left with broken input/echo settings.
 
 ### Other examples: SQL, databases, HTTP, or your own script
 
