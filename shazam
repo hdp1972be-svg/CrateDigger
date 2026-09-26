@@ -539,7 +539,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default"):
                 if huidige_sec_int > vorige_sec:
                     vorige_sec = huidige_sec_int
                     print(
-                        f"\\rRecording sec {vorige_sec}/{duur_sec}",
+                        f"\rRecording sec {vorige_sec}/{duur_sec}",
                         end="",
                         flush=True,
                     )
