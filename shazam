@@ -122,10 +122,17 @@ def voer_afterfound_hook_uit(track, bron_url=None):
     """Voer [HOOKS] afterfound uit na een nieuwe herkenning."""
     global _laatste_afterfound
 
+    genres = track.get("genres") or {}
+    if isinstance(genres, dict):
+        genre = str(genres.get("primary") or "")
+    else:
+        genre = str(genres[0] if genres else "")
+
     waarden = {
         "SHAZAM_ARTIST": str(track.get("subtitle") or ""),
         "SHAZAM_RECORD": str(track.get("title") or ""),
         "SHAZAM_ID": str(track.get("key") or ""),
+        "SHAZAM_GENRE": genre,
         "SHAZAM_URL": str(bron_url or ""),
         "YOUTUBE_ID": youtube_id_uit_url(bron_url),
     }
@@ -588,6 +595,7 @@ async def herken_fragment(
                         {
                             "title": track.get("title"),
                             "artist": track.get("subtitle"),
+                            "genre": genre,
                         },
                         indent=2,
                     )
@@ -597,6 +605,7 @@ async def herken_fragment(
                 print("✅ Nummer gevonden")
                 print(f"Titel   : {track.get('title')}")
                 print(f"Artiest : {track.get('subtitle')}")
+                print(f"Genre   : {genre or 'Onbekend'}")
 
             voer_afterfound_hook_uit(track, bron_url=bron_url)
 
