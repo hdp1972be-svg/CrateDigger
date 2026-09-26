@@ -272,8 +272,44 @@ The recognition score is also available to hooks when Shazam provides one:
 
 - `%confidence` — recognition score
 - `$SHAZAM_CONFIDENCE` — the same value as an environment variable
+- `%source` / `$SHAZAM_SOURCE` — original source (file path, URL, or live input)
+- `%sourcetype` / `$SHAZAM_SOURCE_TYPE` — `file`, `url`, or `live`
 
 JSON output includes the same value as `confidence` when available.
+
+### Profiles
+
+Profiles can be defined in `.shazamrc`. The built-in `default` profile keeps the current command-line defaults, so existing behaviour is unchanged.
+
+```ini
+[PROFILE default]
+duration = 25
+interval = 5
+delay = 0
+input = alsa
+device = default
+loop = false
+json = false
+keep_temp = false
+live = false
+recursive = false
+
+[PROFILE radio]
+live = true
+input = pulse
+device = shazam_sink.monitor
+duration = 20
+interval = 10
+loop = true
+```
+
+Use a profile with:
+
+```bash
+./shazam --profile radio
+```
+
+Explicit command-line options still override the profile values.
 
 ### JSON and CSV pipelines
 
@@ -283,7 +319,7 @@ For example, keep a JSONL history of recognized tracks:
 
 ```ini
 [HOOKS]
-afterfound = shell exec sh -c 'printf "%s\\n" "$(jq -nc --arg artist "$SHAZAM_ARTIST" --arg title "$SHAZAM_RECORD" --arg genre "$SHAZAM_GENRE" --arg id "$SHAZAM_ID" --arg date "$SHAZAM_DATE" --arg url "$SHAZAM_URL" --arg youtubeid "$YOUTUBE_ID" '''{artist:$artist,title:$title,genre:$genre,id:$id,date:$date,url:$url,youtubeid:$youtubeid}''')" >> ~/.local/share/cratedigger.jsonl'
+afterfound = shell exec sh -c 'printf "%s\\n" "$(jq -nc --arg artist "$SHAZAM_ARTIST" --arg title "$SHAZAM_RECORD" --arg genre "$SHAZAM_GENRE" --arg id "$SHAZAM_ID" --arg date "$SHAZAM_DATE" --arg url "$SHAZAM_URL" --arg youtubeid "$YOUTUBE_ID" --arg source "$SHAZAM_SOURCE" --arg sourcetype "$SHAZAM_SOURCE_TYPE" '''{artist:$artist,title:$title,genre:$genre,id:$id,date:$date,url:$url,youtubeid:$youtubeid,source:$source,source_type:$sourcetype}''')" >> ~/.local/share/cratedigger.jsonl'
 ```
 
 JSONL is preferable to appending separate JSON objects to one `.json` file because every line remains an independent valid JSON value.
@@ -317,7 +353,9 @@ The JSON output from CrateDigger also reports the recognition status:
   "status": "found",
   "title": "Example Song",
   "artist": "Example Artist",
-  "genre": "Dance"
+  "genre": "Dance",
+  "source": "https://example.com/source",
+  "source_type": "url"
 }
 ```
 
