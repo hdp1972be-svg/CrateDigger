@@ -521,12 +521,12 @@ class LiveBesturing:
                 if process is not None and process.poll() is None:
                     process.send_signal(signal.SIGCONT)
                 self.paused = False
-                print("\\n▶ Continued")
+                print("\n▶ Continued")
             else:
                 if process is not None and process.poll() is None:
                     process.send_signal(signal.SIGSTOP)
                 self.paused = True
-                print("\\n⏸ Paused — press 'p' to continue")
+                print("\n⏸ Paused — press 'p' to continue")
 
     def wacht(self, seconden):
         """Wacht alleen zolang niet gepauzeerd; 'p' werkt tijdens de wacht."""
