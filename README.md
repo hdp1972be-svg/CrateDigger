@@ -2,13 +2,13 @@
 
 Identify music in a YouTube video (or a local media file) from a short audio segment — directly from the command line.
 
-The tool combines **yt-dlp**, **FFmpeg/pydub**, and **ShazamIO**: it downloads the audio when given a YouTube URL, extracts the requested time window, and sends that short fragment to Shazam for recognition.
+The tool combines **yt-dlp**, **FFmpeg/pydub**, and **ShazamIO**: it downloads audio when given a URL supported by yt-dlp, extracts the requested time window, and sends that short fragment to Shazam for recognition.
 
 I built this because I couldn't find another small CLI tool that combines this particular workflow: **give it a YouTube URL, optionally point it at a timestamp, and identify the music playing there.**
 
 ## Features
 
-- 🎵 Identify music directly from a YouTube URL
+- 🌐 Identify music from URLs supported by yt-dlp (YouTube, SoundCloud, Bandcamp, etc.)
 - 📁 Recognize a song from a local media file
 - ⏱️ Start recognition at an exact timestamp
 - ⌛ Choose how many seconds of audio to analyze
@@ -41,7 +41,7 @@ It handles the YouTube-specific part — including format selection, extraction,
 
 The tool also uses Firefox's existing browser cookies when requested, which is useful for videos where the browser session already has the required access.
 
-> yt-dlp is only needed when the input is a YouTube URL. Local media files bypass it completely.
+> yt-dlp is only needed for online URLs. Local media files bypass it completely. Actual site support depends on what the installed yt-dlp version can extract.
 
 #### FFmpeg — decoding and converting media
 
@@ -162,11 +162,17 @@ The important distinction is that **FFmpeg and yt-dlp are external executables**
 
 ## Usage
 
-### YouTube URL
+### Online URL
+
+Any HTTP(S) URL that the installed yt-dlp can extract can be used. For example:
 
 ```bash
-./shazam.py 'https://www.youtube.com/watch?v=VIDEO_ID'
+./shazam 'https://www.youtube.com/watch?v=VIDEO_ID'
+./shazam 'https://soundcloud.com/artist/track'
+./shazam 'https://artist.bandcamp.com/track/example'
 ```
+
+Actual site support depends on yt-dlp and the particular URL; the Shazam part is independent of the source.
 
 The default is to analyze a **25-second** fragment.
 
