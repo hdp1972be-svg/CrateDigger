@@ -35,7 +35,8 @@ Online-source support is provided by **yt-dlp**, so the exact URLs that work dep
 - 👀 Watch a directory for new or changed media files with `--watch`
 - 📊 Expose Shazam's recognition score as `confidence` when provided
 - ⏳ Add an additional delay after a successful recognition
-- 🔗 Optional `afterfound` shell hooks for automation
+- 🔗 Lifecycle shell hooks: `beforefound`, `afterfound`, `nomatch`, and `error`
+- ⚙️ Profile-specific hook overrides
 
 ## Requirements
 
@@ -54,8 +55,8 @@ The simplest setup is a small virtual environment:
 ```bash
 sudo apt install python3 python3-venv ffmpeg
 
-git clone https://github.com/hdp1972be-svg/youtube-shazam.git
-cd youtube-shazam
+git clone https://github.com/hdp1972be-svg/CrateDigger.git
+cd CrateDigger
 
 python3 -m venv .venv
 . .venv/bin/activate
@@ -73,7 +74,7 @@ Then run:
 For later sessions:
 
 ```bash
-cd youtube-shazam
+cd CrateDigger
 . .venv/bin/activate
 ./shazam ...
 ```
@@ -277,6 +278,49 @@ The recognition score is also available to hooks when Shazam provides one:
 
 JSON output includes the same value as `confidence` when available.
 
+### Hooks
+
+Hooks are configured in `.shazamrc` under `[HOOKS]`. The four lifecycle events are:
+
+- `beforefound` — runs after Shazam has identified a track, immediately before `afterfound`
+- `afterfound` — runs after a new recognition; repeated identical consecutive matches are suppressed
+- `nomatch` — runs when Shazam successfully responds but does not identify the fragment
+- `error` — runs for recognition/network errors
+
+All hooks receive the common environment variables where applicable:
+
+- `$SHAZAM_ARTIST`
+- `$SHAZAM_RECORD`
+- `$SHAZAM_ID`
+- `$SHAZAM_GENRE`
+- `$SHAZAM_CONFIDENCE`
+- `$SHAZAM_DATE`
+- `$SHAZAM_URL`
+- `$YOUTUBE_ID`
+- `$SHAZAM_SOURCE`
+- `$SHAZAM_SOURCE_TYPE`
+- `$SHAZAM_ERROR` — error text for `error`
+- `$SHAZAM_EXIT_CODE` — relevant exit code for `nomatch`/`error`
+
+The command may use placeholders such as `%artist`, `%record`, `%confidence`, `%source`, `%sourcetype`, `%error`, and `%exitcode`; they are expanded through the corresponding environment variables.
+
+Example:
+
+```ini
+[HOOKS]
+beforefound = shell exec printf 'candidate: %s\\n' "$SHAZAM_ARTIST - $SHAZAM_RECORD"
+afterfound = shell exec task add "%artist %record %id %date" +MUSIC
+nomatch = shell exec logger -t cratedigger "no match: $SHAZAM_SOURCE"
+error = shell exec logger -t cratedigger "error $SHAZAM_EXIT_CODE: $SHAZAM_ERROR"
+```
+
+A profile can override individual hooks. The profile hook takes precedence over the global `[HOOKS]` value:
+
+```ini
+[PROFILE radio]
+afterfound = shell exec ~/bin/radio-found.sh
+nomatch = shell exec ~/bin/radio-miss.sh
+```
 ### Profiles
 
 Profiles can be defined in `.shazamrc`. The built-in `default` profile keeps the current command-line defaults, so existing behaviour is unchanged.
