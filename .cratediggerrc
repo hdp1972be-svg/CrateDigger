@@ -88,6 +88,7 @@ error = shell exec printf '[CrateDigger] error %s: %s\\n' "$SHAZAM_EXIT_CODE" "$
 
 # First-match chain. With only one engine this means Shazam only.
 engines = shazam
+detection_mode = firstmatch
 duration = 25
 interval = 5
 delay = 0
@@ -121,6 +122,7 @@ duration = 25
 # Try Shazam first; only continue to ACRCloud if Shazam has no match
 # or encounters an error.
 engines = shazam, acrcloud
+detection_mode = firstmatch
 duration = 25
 
 
