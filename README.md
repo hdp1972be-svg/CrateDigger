@@ -295,7 +295,7 @@ The first existing configuration file from these locations is used:
 ./.cratediggerrc
 ~/.cratediggerrc
 ~/.config/cratedigger/cratediggerrc
-~/.config/shazam/.cratediggerrc
+~/.config/cratedigger/.cratediggerrc
 ```
 
 ### Example: dump every discovered track into a Taskwarrior MUSIC queue
