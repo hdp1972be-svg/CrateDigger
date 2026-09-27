@@ -185,6 +185,63 @@ CLI_HELP_KEEP_TEMP = (
 CLI_HELP_DEBUG = "Bewaar live-opnames in /tmp in plaats van ze na herkenning te verwijderen"
 
 
+def laad_localisatie():
+    """Laad lokale UI-overrides op basis van de systeemlocale."""
+    locale_bestanden = {
+        "nl": "nl",
+        "en": "eng",
+        "fr": "fr",
+        "de": "de",
+        "es": "es",
+        "pl": "po",
+        "po": "po",
+    }
+
+    kandidaten = []
+    for variabele in ("LANGUAGE", "LC_ALL", "LC_MESSAGES", "LANG"):
+        waarde = os.environ.get(variabele, "")
+        if not waarde:
+            continue
+        kandidaten.extend(waarde.split(":"))
+
+    for waarde in kandidaten:
+        taal = waarde.strip().split(".", 1)[0].split("@", 1)[0].lower()
+        taal = taal.split("-", 1)[0].split("_", 1)[0]
+        bestandsnaam = locale_bestanden.get(taal)
+        if not bestandsnaam:
+            continue
+
+        pad = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "localisations",
+            f"{bestandsnaam}.py",
+        )
+        if not os.path.isfile(pad):
+            continue
+
+        try:
+            import importlib.util
+
+            spec = importlib.util.spec_from_file_location(
+                f"cratedigger_localisation_{bestandsnaam}",
+                pad,
+            )
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        except (ImportError, OSError, AttributeError, TypeError):
+            continue
+
+        for naam in dir(module):
+            if naam.startswith(("PRINT_", "ERROR_", "CLI_")):
+                globals()[naam] = getattr(module, naam)
+        return bestandsnaam
+
+    return None
+
+
+LAAD_LOCALISATIE = laad_localisatie()
+
+
 import aiohttp
 import socket
 import asyncio
