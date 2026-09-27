@@ -418,6 +418,14 @@ afterfound = shell exec printf '%s | %s | provider=%s\\n' "%artist" "%record" "%
 
 The equivalent environment variable is `$SHAZAM_PROVIDER`. This is especially useful with `detection_mode = all`, where the same audio fragment can produce separate matches from multiple providers.
 
+Prefix a placeholder with `U` to uppercase its expanded value. For example, `%Uprovider` becomes `SHAZAM`, `%Uartist` uppercases the artist name, and `%Urecord` uppercases the title:
+
+```ini
+afterfound = shell exec task add "%Uartist - %Urecord | %Uprovider ID: %id" +MUSIC
+```
+
+The normal placeholder remains unchanged: `%provider` returns the provider in its configured lowercase form, while `%Uprovider` returns the same value uppercased.
+
 ### Metadata placeholders
 
 Every generated `SHAZAM_*` variable can also be addressed as a hook placeholder by removing the `SHAZAM_` prefix and using lowercase. For example:
