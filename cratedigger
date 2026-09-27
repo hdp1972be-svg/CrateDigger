@@ -582,6 +582,7 @@ def hook_waarden(
     error=None,
     exit_code=None,
     audio_file=None,
+    provider=None,
 ):
     """Bouw de hookomgeving uit alle scalar Shazam-trackvelden plus metadata."""
     track = track or {}
@@ -614,6 +615,7 @@ def hook_waarden(
         "SHAZAM_YEAR": _shazam_jaar(track),
         "SHAZAM_AUDIO_FILE": str(audio_file or ""),
         "SHAZAM_AUDIO_URL": f"file://{audio_file}" if audio_file else "",
+        "SHAZAM_PROVIDER": str(provider or ""),
     })
     alias_map = {
         "SHAZAM_SUBTITLE": "SHAZAM_ARTIST",
@@ -1354,6 +1356,10 @@ async def herken_fragment(
 
             if resultaat.get("track"):
                 resultaat["_cratedigger_engine"] = engine_key
+                resultaat["_cratedigger_provider"] = str(
+                    (laad_engine_config(engine_key) or {}).get("provider")
+                    or engine_key
+                )
                 break
 
             resultaat = {}
@@ -1453,6 +1459,7 @@ async def herken_fragment(
                 confidence=confidence,
                 source=source,
                 source_type=source_type,
+                provider=resultaat.get("_cratedigger_provider", ""),
             )
             voer_hook_uit(
                 "beforefound",
