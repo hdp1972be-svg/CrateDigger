@@ -42,7 +42,7 @@ Online-source support is provided by **yt-dlp**, so the exact URLs that work dep
 - 🎧 Keep unmatched audio fragments in a configurable profile directory (or `/tmp` by default) with a `file://` link and expose the path to `nomatch` hooks
 - 🔌 Automatically rebuild the PulseAudio/Bluetooth loopback after audio-device reconnects
 - 🔄 Fall back to the default/available PulseAudio monitor when Bluetooth is unavailable
-- 🔌 Multiple recognition providers with ordered fallback (currently Shazam and ACRCloud)
+- 🔌 Multiple recognition providers with ordered fallback (Shazam, ACRCloud and AudD)
 - ⚙️ Virtual engine keys with provider-specific configuration and credentials
 - 🧩 Reuse the same captured audio fragment across all recognition engines in the fallback chain
 
@@ -251,6 +251,7 @@ The current providers are:
 |---|---|---|
 | Shazam | `shazam` | Uses ShazamIO |
 | ACRCloud | `acrcloud` | ACRCloud Identify API |
+| AudD | `audd` | AudD music recognition API |
 
 ### Virtual engine configuration
 
@@ -265,6 +266,10 @@ provider = acrcloud
 host = identify-<your-region>.acrcloud.com
 access_key = your-acrcloud-access-key
 access_secret = your-acrcloud-access-secret
+
+[ENGINE audd]
+provider = audd
+api_token = your-audd-api-token
 ```
 
 The engine key is intentionally separate from the provider name. This makes it possible to configure multiple virtual instances of the same provider:
@@ -370,7 +375,7 @@ The standard/common placeholders are:
 | `%error` | `$SHAZAM_ERROR` | Error text for error hooks |
 | `%exit_code` | `$SHAZAM_EXIT_CODE` | CrateDigger exit/error code |
 
-The `%provider` value identifies the actual recognition provider (for example `shazam` or `acrcloud`). The `%id` value is **not necessarily a Shazam ID anymore**. It is the identifier supplied by the recognition engine that produced the match. For example, a Shazam match provides its Shazam track key, while an ACRCloud match provides its ACRID.
+The `%provider` value identifies the actual recognition provider (for example `shazam`, `acrcloud` or `audd`). The `%id` value is **not necessarily a Shazam ID anymore**. It is the identifier supplied by the recognition engine that produced the match. For example, a Shazam match provides its Shazam track key, while an ACRCloud match provides its ACRID and an AudD match provides its `song_id` when available.
 
 In addition to the common variables above, CrateDigger automatically exposes every scalar value found in the provider's returned track dictionary as a `SHAZAM_*` environment variable and therefore as a corresponding lowercase `%placeholder`. Nested dictionaries and arrays are flattened using uppercase underscore-separated names; array indexes are zero-based.
 
