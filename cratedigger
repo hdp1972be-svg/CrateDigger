@@ -1327,9 +1327,15 @@ async def herken_fragment(
     debug=False,
 ):
     temp_pad = None
+    profile_values = laad_profile_waarden(profile_name or "default")
     engine_keys = laad_profile_engines(profile_name or "default")
     if not engine_keys:
         engine_keys = ["shazam"]
+    detection_mode = str(
+        profile_values.get("detection_mode", "firstmatch") or "firstmatch"
+    ).strip().lower()
+    if detection_mode not in ("firstmatch", "all"):
+        raise ValueError("detection_mode moet 'firstmatch' of 'all' zijn.")
 
     try:
         if fragment_pad is not None:
@@ -1374,7 +1380,7 @@ async def herken_fragment(
                 parameters=["-ar", "16000", "-ac", "1"],
             )
 
-        resultaat = {}
+        resultaten = []
         laatste_fout = None
         succesvolle_poging = False
 
@@ -1389,10 +1395,7 @@ async def herken_fragment(
             )
 
             try:
-                resultaat = await herken_met_engine(
-                    engine_key,
-                    temp_pad,
-                )
+                engine_resultaat = await herken_met_engine(engine_key, temp_pad)
                 succesvolle_poging = True
             except asyncio.TimeoutError:
                 laatste_fout = ERROR_NETWORK_TIMEOUT
@@ -1423,34 +1426,26 @@ async def herken_fragment(
                 print(PRINT_UNEXPECTED_ERROR % e)
                 continue
 
-            # A provider may successfully answer while finding no match.
-            # That is a normal miss, so continue with the next configured
-            # engine instead of treating it as an error.
-            if not isinstance(resultaat, dict):
-                resultaat = {}
+            if not isinstance(engine_resultaat, dict):
+                engine_resultaat = {}
 
-            if (
-                "metadata" in resultaat
-                and not "track" in resultaat
-            ):
-                muziek = (
-                    (resultaat.get("metadata") or {}).get("music") or []
-                )
-                resultaat = {"track": muziek[0]} if muziek else {}
+            if "metadata" in engine_resultaat and "track" not in engine_resultaat:
+                muziek = (engine_resultaat.get("metadata") or {}).get("music") or []
+                engine_resultaat = {"track": muziek[0]} if muziek else {}
 
-            if resultaat.get("track"):
-                resultaat["_cratedigger_engine"] = engine_key
-                resultaat["_cratedigger_provider"] = str(
+            if engine_resultaat.get("track"):
+                provider = str(
                     (laad_engine_config(engine_key) or {}).get("provider")
                     or engine_key
                 )
-                break
+                engine_resultaat["_cratedigger_engine"] = engine_key
+                engine_resultaat["_cratedigger_provider"] = provider
+                resultaten.append(engine_resultaat)
 
-            resultaat = {}
+                if detection_mode == "firstmatch":
+                    break
 
-        else:
-            # If at least one engine answered successfully, all engines
-            # simply missed: this is a normal no-match, not an error.
+        if not resultaten:
             if not succesvolle_poging and laatste_fout:
                 voer_hook_uit(
                     "error",
@@ -1464,6 +1459,68 @@ async def herken_fragment(
                     profile_name=profile_name,
                 )
                 return 2
+            resultaat = {}
+        else:
+            resultaat = resultaten[0]
+
+        if detection_mode == "all" and resultaten:
+            for gevonden in resultaten:
+                track = gevonden["track"]
+                provider = gevonden.get("_cratedigger_provider", "")
+                genres = track.get("genres") or {}
+                genre = str(genres.get("primary") or "") if isinstance(genres, dict) else str(genres[0] if genres else "")
+                confidence = haal_confidence(track)
+
+                if json_output:
+                    record = {
+                        "status": "found",
+                        "track": track,
+                        "engine": gevonden.get("_cratedigger_engine", ""),
+                        "provider": provider,
+                        "confidence": confidence,
+                        "source": source or bron_url or "",
+                        "source_type": source_type or ("url" if bron_url else ""),
+                    }
+                    if bron_url:
+                        record["youtube_id"] = youtube_id_uit_url(bron_url)
+                    print(json.dumps(record, indent=2, ensure_ascii=False))
+                else:
+                    print()
+                    print(PRINT_FOUND % gevonden.get("_cratedigger_engine", "unknown"))
+                    print(PRINT_TITLE % track.get("title"))
+                    print(PRINT_ARTIST % track.get("subtitle"))
+                    print(PRINT_GENRE % (genre or "Onbekend"))
+                    if confidence is not None:
+                        print(PRINT_MATCH % confidence)
+                    jaar = _shazam_jaar(track)
+                    if jaar:
+                        print(PRINT_YEAR % jaar)
+                    album = track.get("album")
+                    if isinstance(album, dict) and album.get("name"):
+                        print(PRINT_ALBUM % album.get("name"))
+                    if source:
+                        print(PRINT_SOURCE % source)
+
+                waarden = hook_waarden(
+                    track=track,
+                    bron_url=bron_url,
+                    confidence=confidence,
+                    source=source,
+                    source_type=source_type,
+                    provider=provider,
+                )
+                voer_hook_uit("beforefound", waarden, profile_name=profile_name)
+                voer_afterfound_hook_uit(
+                    track,
+                    bron_url=bron_url,
+                    confidence=confidence,
+                    source=source,
+                    source_type=source_type,
+                    profile_name=profile_name,
+                    provider=provider,
+                )
+
+            return 0
 
         if "track" in resultaat:
 
@@ -2140,6 +2197,7 @@ async def watch_modus(pad, recursief, duur, json_output, keep_temp, profile_name
 DEFAULT_PROFILE = {
     "duration": 25,
     "engines": "shazam",
+    "detection_mode": "firstmatch",
     "interval": 5,
     "delay": 0,
     "input": "alsa",
@@ -2210,6 +2268,13 @@ def maak_parser():
         "--live",
         action="store_true",
         help=CLI_HELP_LIVE,
+    )
+
+    parser.add_argument(
+        "--detection-mode",
+        choices=("firstmatch", "all"),
+        default="firstmatch",
+        help="Recognition mode: stop after the first match or query all configured engines",
     )
 
     parser.add_argument(
