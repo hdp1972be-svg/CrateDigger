@@ -1111,6 +1111,75 @@ def _acrcloud_multipart(fields, file_field, file_name, file_data):
     return b"".join(delen), f"multipart/form-data; boundary={boundary}"
 
 
+def audd_recognize(engine, temp_pad):
+    """Herken een WAV-fragment via de AudD music recognition API."""
+    api_token = str(engine.get("api_token", "")).strip()
+    if not api_token:
+        raise RuntimeError(
+            "AudD engine is not configured (api_token)."
+        )
+
+    boundary = "----CrateDiggerAudD"
+    with open(temp_pad, "rb") as audio_file:
+        audio_data = audio_file.read()
+
+    delen = [
+        f"--{boundary}\r\n".encode(),
+        b'Content-Disposition: form-data; name="api_token"\r\n\r\n',
+        api_token.encode("utf-8"),
+        b"\r\n",
+        f"--{boundary}\r\n".encode(),
+        f'Content-Disposition: form-data; name="file"; filename="{os.path.basename(temp_pad)}"\r\n'.encode(),
+        b"Content-Type: audio/wav\r\n\r\n",
+        audio_data,
+        b"\r\n",
+        f"--{boundary}--\r\n".encode(),
+    ]
+
+    request = urllib.request.Request(
+        "https://api.audd.io/",
+        data=b"".join(delen),
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "User-Agent": "CrateDigger/1.0",
+        },
+        method="POST",
+    )
+
+    with urllib.request.urlopen(request, timeout=15) as response:
+        resultaat = json.loads(response.read().decode("utf-8"))
+
+    if resultaat.get("status") != "success":
+        fout = resultaat.get("error") or {}
+        if isinstance(fout, dict):
+            fout = fout.get("error_message") or fout.get("error_code") or "recognition failed"
+        raise RuntimeError("AudD: " + str(fout))
+
+    nummer = resultaat.get("result")
+    if not nummer:
+        return {}
+
+    artiest = str(nummer.get("artist") or "")
+    titel = str(nummer.get("title") or "")
+    if not artiest and not titel:
+        return {}
+
+    release_date = str(nummer.get("release_date") or "")
+    jaar_match = re.search(r"\b(19|20)\d{2}\b", release_date)
+
+    return {
+        "track": {
+            "title": titel,
+            "subtitle": artiest,
+            "key": str(nummer.get("song_id") or ""),
+            "genres": {},
+            "album": {"name": str(nummer.get("album") or "")},
+            "releasedate": jaar_match.group(0) if jaar_match else release_date,
+            "sources": {"audd": nummer},
+        }
+    }
+
+
 def acrcloud_recognize(engine, temp_pad):
     """Herken een WAV-fragment via de ACRCloud Identify API."""
     host = str(engine.get("host", "")).strip()
@@ -1227,6 +1296,13 @@ async def herken_met_engine(engine_key, temp_pad):
     if provider == "acrcloud":
         return await asyncio.to_thread(
             acrcloud_recognize,
+            engine,
+            temp_pad,
+        )
+
+    if provider == "audd":
+        return await asyncio.to_thread(
+            audd_recognize,
             engine,
             temp_pad,
         )
