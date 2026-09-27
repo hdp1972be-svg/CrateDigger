@@ -57,6 +57,18 @@ kleur.actief = bepaal_kleur()
 
 
 # Terminal interface strings
+APP_VERSION = "0.5"
+APP_RELEASE_DATE = "27/09/2026"
+APP_GITHUB_URL = "https://github.com/hdp1972be-svg/CrateDigger"
+
+PRINT_BANNER = """
+/**
+ * CrateDigger v%s
+ * Release date : %s
+ * GitHub       : %s
+ */
+""" 
+
 PRINT_PROFILE = "⚙️  Profile: %s"
 PRINT_CONFIG_READ_ERROR = "⚠️  Kan %s niet lezen: %s"
 PRINT_NO_CONFIG = "Geen .cratediggerrc gevonden; alleen profiel 'default' is beschikbaar."
@@ -2223,6 +2235,8 @@ async def main():
     profiel_waarden = laad_profile_waarden(profiel_args.profile)
     parser.set_defaults(**profiel_waarden)
     args = parser.parse_args()
+
+    print(PRINT_BANNER % (APP_VERSION, APP_RELEASE_DATE, APP_GITHUB_URL))
 
     effectieve_waarden = {
         sleutel: getattr(args, sleutel)
