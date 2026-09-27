@@ -275,11 +275,38 @@ def laad_hooks_config():
     return None
 
 
+def laad_engine_config(sleutel):
+    """Laad een virtuele engine-configuratie uit [ENGINE <sleutel>]."""
+    config = laad_hooks_config()
+    if config is None:
+        return None
+
+    sectie = f"ENGINE {sleutel}"
+    if not config.has_section(sectie):
+        return None
+
+    waarden = {
+        optie: config.get(sectie, optie).strip()
+        for optie in config.options(sectie)
+    }
+    waarden["name"] = sleutel
+    waarden.setdefault("provider", sleutel)
+    return waarden
+
+
+def laad_profile_engines(naam):
+    """Geef de virtuele engine-sleutels voor een profiel terug."""
+    waarden = laad_profile_waarden(naam)
+    engines = str(waarden.get("engines", "shazam") or "shazam")
+    return [engine.strip() for engine in engines.split(",") if engine.strip()]
+
+
 def toon_profile_status(naam, waarden):
     """Toon bij startup welk profiel en welke effectieve profielwaarden actief zijn."""
     print(kleur(PRINT_PROFILE % naam, Kleuren.CYAN))
     for sleutel, waarde in waarden.items():
         print(f"   {sleutel} = {waarde}")
+    print(f"   engines = {', '.join(laad_profile_engines(naam))}")
 
 
 def toon_profiles():
@@ -1027,6 +1054,23 @@ def download_url_gedeelte(url, starttijd_ms, duur_sec):
     return wav_pad, tmpmap
 
 
+async def herken_met_engine(engine_key, temp_pad):
+    """Herken een WAV-fragment met de provider achter een virtuele engine-key."""
+    engine = laad_engine_config(engine_key) or {
+        "name": engine_key,
+        "provider": engine_key,
+    }
+    provider = str(engine.get("provider", "")).strip().lower()
+
+    if provider != "shazam":
+        raise RuntimeError(
+            f"Engine provider '{provider}' voor '{engine_key}' wordt nog niet ondersteund."
+        )
+
+    shazam = Shazam()
+    return await shazam.recognize(temp_pad)
+
+
 async def herken_fragment(
     mp3_pad,
     start_tijd,
@@ -1040,8 +1084,10 @@ async def herken_fragment(
     profile_name=None,
     debug=False,
 ):
-    shazam = Shazam()
     temp_pad = None
+    engine_keys = laad_profile_engines(profile_name or "default")
+    if not engine_keys:
+        engine_keys = ["shazam"]
 
     try:
         if fragment_pad is not None:
@@ -1088,8 +1134,12 @@ async def herken_fragment(
 
         print(kleur(PRINT_QUERY_SHAZAM, Kleuren.CYAN))
 
+        # The profile contains virtual engine keys. At this stage the
+        # dispatch layer supports the Shazam provider; additional providers
+        # can be added without changing the profile format.
+        engine_key = engine_keys[0]
         try:
-            resultaat = await shazam.recognize(temp_pad)
+            resultaat = await herken_met_engine(engine_key, temp_pad)
 
         except asyncio.TimeoutError:
             print(PRINT_TIMEOUT)
@@ -1844,6 +1894,7 @@ async def watch_modus(pad, recursief, duur, json_output, keep_temp, profile_name
 
 DEFAULT_PROFILE = {
     "duration": 25,
+    "engines": "shazam",
     "interval": 5,
     "delay": 0,
     "input": "alsa",
