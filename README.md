@@ -346,6 +346,52 @@ Empty/null fields are exported as an empty string. Boolean values become `true` 
 
 The complete original `track` dictionary is also available as compact JSON in `$SHAZAM_JSON` (with `$SHAZAM_TRACK_JSON` as an alias). This is useful when a hook needs metadata that is nested, array-based, or not convenient to address as an individual shell variable.
 
+### Hook expansion variables
+
+Hook commands support `%placeholders` in addition to the corresponding environment variables. Every `SHAZAM_*` value in the hook environment can be referenced by removing the `SHAZAM_` prefix and using lowercase.
+
+The standard/common placeholders are:
+
+| Placeholder | Environment variable | Meaning |
+|---|---|---|
+| `%artist` | `$SHAZAM_ARTIST` | Artist name |
+| `%record` | `$SHAZAM_RECORD` | Track title |
+| `%id` | `$SHAZAM_ID` | Provider-specific track identifier |
+| `%genre` | `$SHAZAM_GENRE` | Primary genre |
+| `%confidence` | `$SHAZAM_CONFIDENCE` | Recognition confidence/score when available |
+| `%year` | `$SHAZAM_YEAR` | Release year when available |
+| `%date` | `$SHAZAM_DATE` | Recognition date |
+| `%url` | `$SHAZAM_URL` | Original source URL |
+| `%youtubeid` | `$YOUTUBE_ID` | YouTube video ID when present |
+| `%source` | `$SHAZAM_SOURCE` | Original source/path |
+| `%sourcetype` | `$SHAZAM_SOURCE_TYPE` | Source type |
+| `%audio_file` | `$SHAZAM_AUDIO_FILE` | Saved audio fragment path |
+| `%audio_url` | `$SHAZAM_AUDIO_URL` | Saved audio fragment as `file://` URL |
+| `%error` | `$SHAZAM_ERROR` | Error text for error hooks |
+| `%exit_code` | `$SHAZAM_EXIT_CODE` | CrateDigger exit/error code |
+
+The `%id` value is **not necessarily a Shazam ID anymore**. It is the identifier supplied by the recognition engine that produced the match. For example, a Shazam match provides its Shazam track key, while an ACRCloud match provides its ACRID.
+
+In addition to the common variables above, CrateDigger automatically exposes every scalar value found in the provider's returned track dictionary as a `SHAZAM_*` environment variable and therefore as a corresponding lowercase `%placeholder`. Nested dictionaries and arrays are flattened using uppercase underscore-separated names; array indexes are zero-based.
+
+For example:
+
+```text
+images.coverarthq      → $SHAZAM_IMAGES_COVERARTHQ      → %images_coverarthq
+sections[0].type       → $SHAZAM_SECTIONS_0_TYPE       → %sections_0_type
+artists[0].name        → $SHAZAM_ARTISTS_0_NAME        → %artists_0_name
+```
+
+The complete provider track dictionary is also available as `$SHAZAM_JSON` / `$SHAZAM_TRACK_JSON`, and therefore as `%json` / `%track_json`.
+
+For hooks such as:
+
+```ini
+afterfound = shell exec task add "%artist - %record (%year) | (ID: %id) SEARCHDATE: (%date)" +MUSIC
+```
+
+CrateDigger expands the placeholders before executing the shell command.
+
 ### Metadata placeholders
 
 Every generated `SHAZAM_*` variable can also be addressed as a hook placeholder by removing the `SHAZAM_` prefix and using lowercase. For example:
