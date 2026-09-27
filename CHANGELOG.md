@@ -18,6 +18,7 @@ All notable changes to CrateDigger are documented here.
 - Automatic system-locale detection for terminal UI localization.
 - Classic startup banner with version, release date and GitHub repository.
 - Documentation for multi-provider recognition and hook expansion.
+- Fixed `%provider` / `$SHAZAM_PROVIDER` propagation to the normal `afterfound` hook path.
 
 ### Changed
 
