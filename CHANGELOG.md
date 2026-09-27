@@ -33,6 +33,7 @@ All notable changes to CrateDigger are documented here.
 - Correct handling of ACRCloud status code `0`.
 - Correct handling of ACRCloud no-result responses.
 - Successful ACRCloud responses without track data are treated as normal no-match results.
+- ACRCloud recognition uses a short 8 kHz mono WAV sample and treats status `1001` as a normal no-match.
 - Recognition fallback continues after provider no-match or provider error.
 - All-provider no-match no longer incorrectly triggers the error path when a provider answered successfully.
 - Restored correct terminal newline/control-character handling after localization refactoring.
