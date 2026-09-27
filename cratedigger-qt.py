@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Thin Qt5 wrapper for the CrateDigger CLI.
 
-The original ./shazam program is intentionally left untouched. This wrapper
+The original ./cratedigger program is intentionally left untouched. This wrapper
 runs it inside a pseudo-terminal (PTY), so the CLI still sees a real TTY:
 ANSI colours, carriage-return progress updates, and the existing /dev/tty
 live controls continue to work.
@@ -25,7 +25,7 @@ from PyQt5.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PyQt5.QtWidgets import QApplication, QMainWindow, QPlainTextEdit, QToolBar
 
 APP_DIR = Path(__file__).resolve().parent
-CLI = APP_DIR / "shazam"
+CLI = APP_DIR / "cratedigger"
 
 ANSI_COLOURS = {
     30: QColor("#000000"), 31: QColor("#cc5555"), 32: QColor("#55aa55"),
@@ -193,7 +193,7 @@ class CrateDiggerWindow(QMainWindow):
             self.notifier = None
 
     def keyPressEvent(self, event):
-        # Forward the existing live controls without changing ./shazam.
+        # Forward the existing live controls without changing ./cratedigger.
         if event.text() in ("p", "n"):
             self.send_key(event.text())
             return
