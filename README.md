@@ -245,6 +245,20 @@ engines = acrcloud, shazam
 
 The engines are tried from left to right. CrateDigger captures the audio fragment **once** and reuses the same fragment for every engine in the chain.
 
+### Detection mode
+
+Profiles support two recognition modes:
+
+    [PROFILE default]
+    engines = shazam, acrcloud, audd
+    detection_mode = firstmatch
+
+- **`firstmatch`** (default): engines are queried from left to right. The first successful match stops recognition; a no-match or provider error continues to the next engine.
+- **`all`**: every configured engine is queried with the same audio fragment. Every successful provider result is reported independently, and the `beforefound` / `afterfound` hooks are executed separately for each match.
+
+In `all` mode, providers that return no match or an error do not produce a match hook. The existing `error` hook remains reserved for the case where no configured provider successfully answered at all.
+
+
 The current providers are:
 
 | Provider | Engine key | Configuration |
