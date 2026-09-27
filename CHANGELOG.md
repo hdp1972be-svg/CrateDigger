@@ -53,3 +53,5 @@ The configuration is designed so additional providers can be added without chang
 ### Notes
 
 Version 0.5 marks the transition from a Shazam-specific recognizer to the CrateDigger multi-provider recognition architecture.
+- Fixed `%provider` / `$SHAZAM_PROVIDER` propagation to the normal `afterfound` hook path.
+- Added `%U<placeholder>` hook expansion for uppercase values.
