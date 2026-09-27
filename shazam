@@ -51,53 +51,6 @@ def bepaal_kleur():
 
 kleur.actief = bepaal_kleur()
 
-# Human-readable terminal interface defaults. Kept separate from output calls
-# so locale overrides can be added later without changing application logic.
-PRINT_CONFIG_READ_ERROR_TEXT = "⚠️  Kan {path} niet lezen: {error}"
-PRINT_PROFILE_TEXT = "⚙️  Profile: {name}"
-PRINT_NO_PROFILE_TEXT = "Geen .shazamrc gevonden; alleen profiel 'default' is beschikbaar."
-PRINT_HOOKS_DEFAULTS_TEXT = "[HOOKS] DEFAULTS"
-PRINT_HOOK_HEADER_TEXT = "HOOK"
-PRINT_COMMAND_HEADER_TEXT = "COMMAND"
-PRINT_EXECUTING_HOOK_TEXT = "🔗 Executing {event} hook..."
-PRINT_HOOK_START_ERROR_TEXT = "⚠️  {event} hook kon niet worden gestart: {error}"
-PRINT_HOOK_EXIT_ERROR_TEXT = "⚠️  {event} hook eindigde met exit code {code}."
-PRINT_LOADING_AUDIO_TEXT = "Audio laden..."
-PRINT_QUERY_SHAZAM_TEXT = "Shazam raadplegen..."
-PRINT_TIMEOUT_TEXT = "❌ Netwerk-timeout tijdens verbinden met Shazam."
-PRINT_CONNECTION_ERROR_TEXT = "❌ Kan geen verbinding maken met Shazam ({host})."
-PRINT_CONNECTION_LOST_TEXT = "❌ Netwerkverbinding verbroken."
-PRINT_HTTP_ERROR_TEXT = "❌ HTTP-fout {status} van Shazam."
-PRINT_DNS_ERROR_TEXT = "❌ DNS lookup mislukt."
-PRINT_NETWORK_ERROR_TEXT = "❌ Netwerkfout: {error}"
-PRINT_UNEXPECTED_RECOGNITION_ERROR_TEXT = "❌ Onverwachte fout tijdens herkenning: {error}"
-PRINT_FOUND_TEXT = "✅ Nummer gevonden"
-PRINT_TITLE_TEXT = "Titel"
-PRINT_ARTIST_TEXT = "Artiest"
-PRINT_GENRE_TEXT = "Genre"
-PRINT_UNKNOWN_TEXT = "Onbekend"
-PRINT_MATCH_TEXT = "Match"
-PRINT_YEAR_TEXT = "Jaar"
-PRINT_ALBUM_TEXT = "Album"
-PRINT_SOURCE_TEXT = "Bron"
-PRINT_NO_MATCH_TEXT = "❌ Geen herkenning."
-PRINT_FRAGMENT_SAVED_TEXT = "🎧 Fragment bewaard: file://{path}"
-PRINT_FRAGMENT_SAVED_PLAIN_TEXT = "Fragment bewaard: {path}"
-PRINT_PAUSE_HELP_TEXT = "Druk 'p' om te pauzeren/hervatten."
-PRINT_QUIT_REQUESTED_TEXT = "\n⏹ Quit requested"
-PRINT_RESET_TEXT = "\n↻ Reset — nieuwe opname vanaf 0s"
-PRINT_CONTINUED_TEXT = "\n▶ Continued"
-PRINT_PAUSED_TEXT = "\n⏸ Paused — press 'p' to continue"
-PRINT_LISTENING_TEXT = "Luisteren via {input} ({duration}s)..."
-PRINT_SILENCE_SAVED_TEXT = "🎧 Stil fragment bewaard: file://{path}"
-PRINT_NEXT_RECORDING_TEXT = "Volgende opname over {seconds}s..."
-PRINT_DELAY_TEXT = "Delay na gevonden nummer: {seconds}s..."
-PRINT_NO_MEDIA_TEXT = "Geen ondersteunde mediafiles gevonden."
-PRINT_FILE_PROGRESS_TEXT = "\n[{index}/{total}] {path}"
-PRINT_WATCHING_TEXT = "👀 Watching: {path}"
-PRINT_STOP_WATCHING_TEXT = "Ctrl-C om te stoppen."
-PRINT_NEW_FILE_TEXT = "\n📁 Nieuw bestand: {path}"
-
 
 import aiohttp
 import socket
@@ -124,7 +77,7 @@ def laad_hooks_config():
         try:
             config.read(pad, encoding="utf-8")
         except (OSError, configparser.Error) as e:
-            print(PRINT_CONFIG_READ_ERROR_TEXT.format(path=pad, error=e), file=sys.stderr)
+            print(f"⚠️  Kan {pad} niet lezen: {e}", file=sys.stderr)
             return None
 
         return config
@@ -134,7 +87,7 @@ def laad_hooks_config():
 
 def toon_profile_status(naam, waarden):
     """Toon bij startup welk profiel en welke effectieve profielwaarden actief zijn."""
-    print(kleur(PRINT_PROFILE_TEXT.format(name=naam), Kleuren.CYAN))
+    print(kleur(f"⚙️  Profile: {naam}", Kleuren.CYAN))
     for sleutel, waarde in waarden.items():
         print(f"   {sleutel} = {waarde}")
 
@@ -143,7 +96,7 @@ def toon_profiles():
     """Toon alle profielen in automatisch opgesplitste, terminal-brede tabellen."""
     config = laad_hooks_config()
     if config is None:
-        print(PRINT_NO_PROFILE_TEXT)
+        print("Geen .shazamrc gevonden; alleen profiel 'default' is beschikbaar.")
         return
     profielen = sorted(
         sectie[len("PROFILE "):].strip()
@@ -179,7 +132,7 @@ def toon_profiles():
         for event in HOOK_EVENTS
     ]
 
-    print(PRINT_HOOKS_DEFAULTS_TEXT)
+    print("[HOOKS] DEFAULTS")
     hook_label_width = max(len("HOOK"), *(len(event) for event, _ in hook_defaults))
     hook_value_width = max(
         12,
@@ -543,7 +496,7 @@ def voer_hook_uit(
 
     omgeving = os.environ.copy()
     omgeving.update(waarden)
-    print(kleur(PRINT_EXECUTING_HOOK_TEXT.format(event=event), Kleuren.MAGENTA))
+    print(kleur(f"🔗 Executing {event} hook...", Kleuren.MAGENTA))
 
     try:
         resultaat = subprocess.run(
@@ -911,7 +864,7 @@ async def herken_fragment(
             if not os.path.isfile(mp3_pad):
                 raise FileNotFoundError(mp3_pad)
 
-            print(PRINT_LOADING_AUDIO_TEXT)
+            print("Audio laden...")
             audio = AudioSegment.from_file(mp3_pad)
 
             start_ms = zet_tijd_om_naar_ms(start_tijd)
@@ -945,13 +898,13 @@ async def herken_fragment(
                 parameters=["-ar", "16000", "-ac", "1"],
             )
 
-        print(kleur(PRINT_QUERY_SHAZAM_TEXT, Kleuren.CYAN))
+        print(kleur("Shazam raadplegen...", Kleuren.CYAN))
 
         try:
             resultaat = await shazam.recognize(temp_pad)
 
         except asyncio.TimeoutError:
-            print(PRINT_TIMEOUT_TEXT)
+            print("❌ Netwerk-timeout tijdens verbinden met Shazam.")
             voer_hook_uit(
                 "error",
                 hook_waarden(
@@ -966,7 +919,7 @@ async def herken_fragment(
             return 2
 
         except aiohttp.ClientConnectorError as e:
-            print(PRINT_CONNECTION_ERROR_TEXT.format(host=e.host))
+            print(f"❌ Kan geen verbinding maken met Shazam ({e.host}).")
             voer_hook_uit(
                 "error",
                 hook_waarden(
@@ -981,7 +934,7 @@ async def herken_fragment(
             return 2
 
         except aiohttp.ClientConnectionError:
-            print(PRINT_CONNECTION_LOST_TEXT)
+            print("❌ Netwerkverbinding verbroken.")
             voer_hook_uit(
                 "error",
                 hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
@@ -991,7 +944,7 @@ async def herken_fragment(
             return 2
 
         except aiohttp.ClientResponseError as e:
-            print(PRINT_HTTP_ERROR_TEXT.format(status=e.status))
+            print(f"❌ HTTP-fout {e.status} van Shazam.")
             voer_hook_uit(
                 "error",
                 hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
@@ -1001,7 +954,7 @@ async def herken_fragment(
             return 2
 
         except socket.gaierror:
-            print(PRINT_DNS_ERROR_TEXT)
+            print("❌ DNS lookup mislukt.")
             voer_hook_uit(
                 "error",
                 hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
@@ -1011,7 +964,7 @@ async def herken_fragment(
             return 2
 
         except aiohttp.ClientError as e:
-            print(PRINT_NETWORK_ERROR_TEXT.format(error=e))
+            print(f"❌ Netwerkfout: {e}")
             voer_hook_uit(
                 "error",
                 hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
@@ -1021,7 +974,7 @@ async def herken_fragment(
             return 2
 
         except Exception as e:
-            print(PRINT_UNEXPECTED_RECOGNITION_ERROR_TEXT.format(error=e))
+            print(f"❌ Onverwachte fout tijdens herkenning: {e}")
             voer_hook_uit(
                 "error",
                 hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
@@ -1053,15 +1006,15 @@ async def herken_fragment(
                 print(json.dumps(record, indent=2, ensure_ascii=False))
             else:
                 print()
-                print(PRINT_FOUND_TEXT)
-                print(f"{PRINT_TITLE_TEXT:8}: {track.get('title')}")
-                print(f"{PRINT_ARTIST_TEXT:8}: {track.get('subtitle')}")
-                print(f"{PRINT_GENRE_TEXT:8}: {genre or PRINT_UNKNOWN_TEXT}")
+                print("✅ Nummer gevonden")
+                print(f"Titel   : {track.get('title')}")
+                print(f"Artiest : {track.get('subtitle')}")
+                print(f"Genre   : {genre or 'Onbekend'}")
                 if confidence is not None:
-                    print(f"{PRINT_MATCH_TEXT:8}: {confidence:g}")
+                    print(f"Match   : {confidence:g}")
                 jaar = _shazam_jaar(track)
                 if jaar:
-                    print(f"{PRINT_YEAR_TEXT:8}: {jaar}")
+                    print(f"Jaar    : {jaar}")
                 if debug:
                     extra = _shazam_flatten(track)
                     for naam, waarde in extra.items():
@@ -1074,7 +1027,7 @@ async def herken_fragment(
                 else:
                     album = track.get("album")
                     if isinstance(album, dict) and album.get("name"):
-                        print(f"{PRINT_ALBUM_TEXT:8}: {album.get('name')}")
+                        print(f"Album   : {album.get('name')}")
                     sections = track.get("sections")
                     if isinstance(sections, list):
                         for section in sections:
@@ -1100,7 +1053,7 @@ async def herken_fragment(
                         if waarde:
                             print(f"{label:8}: {waarde}")
                 if source:
-                    print(f"{PRINT_SOURCE_TEXT:8}: {source}")
+                    print(f"Bron    : {source}")
 
             waarden = hook_waarden(
                 track=track,
@@ -1137,8 +1090,8 @@ async def herken_fragment(
             }
             print(json.dumps(record, ensure_ascii=False))
         else:
-            print(PRINT_NO_MATCH_TEXT)            if nomatch_file:
-                print(PRINT_FRAGMENT_SAVED_TEXT.format(path=nomatch_file))
+            print("❌ Geen herkenning.")            if nomatch_file:
+                print(f"🎧 Fragment bewaard: file://{nomatch_file}")
 
         voer_hook_uit(
             "nomatch",
@@ -1163,7 +1116,7 @@ async def herken_fragment(
         ):
             os.remove(temp_pad)
         elif temp_pad and keep_temp:
-            print(PRINT_FRAGMENT_SAVED_PLAIN_TEXT.format(path=temp_pad))
+            print(f"Fragment bewaard: {temp_pad}")
 
 
 
@@ -1222,7 +1175,7 @@ class LiveBesturing:
         # loop also calls stop() explicitly, but this covers exits that happen
         # outside that control flow.
         atexit.register(self.stop)
-        print(kleur(PRINT_PAUSE_HELP_TEXT, Kleuren.YELLOW))
+        print(kleur("Druk 'p' om te pauzeren/hervatten.", Kleuren.YELLOW))
 
     def verwerk_toetsen(self, process=None):
         while True:
@@ -1235,13 +1188,13 @@ class LiveBesturing:
                 self.quit_requested = True
                 if process is not None and process.poll() is None:
                     process.send_signal(signal.SIGTERM)
-                print(PRINT_QUIT_REQUESTED_TEXT)
+                print("\n⏹ Quit requested")
                 continue
             if toets == b"n":
                 self.reset_requested = True
                 if process is not None and process.poll() is None:
                     process.send_signal(signal.SIGTERM)
-                print(PRINT_RESET_TEXT)
+                print("\n↻ Reset — nieuwe opname vanaf 0s")
                 continue
 
             if toets != b"p":
@@ -1251,12 +1204,12 @@ class LiveBesturing:
                 if process is not None and process.poll() is None:
                     process.send_signal(signal.SIGCONT)
                 self.paused = False
-                print(PRINT_CONTINUED_TEXT)
+                print("\n▶ Continued")
             else:
                 if process is not None and process.poll() is None:
                     process.send_signal(signal.SIGSTOP)
                 self.paused = True
-                print(PRINT_PAUSED_TEXT)
+                print("\n⏸ Paused — press 'p' to continue")
 
     def wacht(self, seconden):
         """Wacht met p-pauze en n-reset. Geeft reset/quit-status terug."""
@@ -1356,7 +1309,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
         "-",
     ]
 
-    print(PRINT_LISTENING_TEXT.format(input=invoer, duration=duur_sec))
+    print(f"Luisteren via {invoer} ({duur_sec}s)...")
 
     process = subprocess.Popen(
         command,
@@ -1523,7 +1476,7 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
                         profile_name=profile_name,
                     )
                     if opgeslagen_pad:
-                        print(PRINT_SILENCE_SAVED_TEXT.format(path=opgeslagen_pad))
+                        print(f"🎧 Stil fragment bewaard: file://{opgeslagen_pad}")
                         fragment_pad = None
                     code = 1
                 else:
@@ -1562,7 +1515,7 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
                 return code
 
             if interval_sec > 0:
-                print(PRINT_NEXT_RECORDING_TEXT.format(seconds=interval_sec))
+                print(f"Volgende opname over {interval_sec}s...")
                 wacht_resultaat = besturing.wacht(interval_sec)
                 if wacht_resultaat == "quit":
                     return 130
@@ -1570,7 +1523,7 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
                     continue
 
             if code == 0 and delay_sec > 0:
-                print(PRINT_DELAY_TEXT.format(seconds=delay_sec))
+                print(f"Delay na gevonden nummer: {delay_sec}s...")
                 wacht_resultaat = besturing.wacht(delay_sec)
                 if wacht_resultaat == "quit":
                     return 130
@@ -1622,14 +1575,14 @@ async def batch_modus(pad, recursief, starttijd, duur, json_output, keep_temp, p
     """Herken alle lokale mediafiles in een directory."""
     bestanden = verzamel_media_bestanden(pad, recursief)
     if not bestanden:
-        print(PRINT_NO_MEDIA_TEXT)
+        print("Geen ondersteunde mediafiles gevonden.")
         return 1
 
     laatste_code = 1
     totaal = len(bestanden)
 
     for index, bestand in enumerate(bestanden, 1):
-        print(kleur(PRINT_FILE_PROGRESS_TEXT.format(index=index, total=totaal, path=bestand), Kleuren.BLUE))
+        print(kleur(f"\n[{index}/{totaal}] {bestand}", Kleuren.BLUE))
         try:
             code = await herken_fragment(
                 bestand,
@@ -1657,8 +1610,8 @@ async def watch_modus(pad, recursief, duur, json_output, keep_temp, profile_name
         raise FileNotFoundError(pad)
 
     gezien = set()
-    print(kleur(PRINT_WATCHING_TEXT.format(path=pad), Kleuren.CYAN))
-    print(kleur(PRINT_STOP_WATCHING_TEXT, Kleuren.DIM))
+    print(kleur(f"👀 Watching: {pad}", Kleuren.CYAN))
+    print(kleur("Ctrl-C om te stoppen.", Kleuren.DIM))
 
     try:
         while True:
@@ -1675,7 +1628,7 @@ async def watch_modus(pad, recursief, duur, json_output, keep_temp, profile_name
 
                 gezien.add(sleutel)
 
-                print(kleur(PRINT_NEW_FILE_TEXT.format(path=bestand), Kleuren.BLUE))
+                print(kleur(f"\n📁 Nieuw bestand: {bestand}", Kleuren.BLUE))
                 try:
                     await herken_fragment(
                         bestand,
