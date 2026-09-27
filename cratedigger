@@ -75,7 +75,7 @@ PRINT_DNS_ERROR = "❌ DNS lookup mislukt."
 PRINT_NETWORK_ERROR = "❌ Netwerkfout: %s"
 PRINT_UNEXPECTED_ERROR = "❌ Onverwachte fout tijdens herkenning: %s"
 
-PRINT_FOUND = "✅ Nummer gevonden"
+PRINT_FOUND = "✅ Nummer gevonden via %s"
 PRINT_TITLE = "Titel   : %s"
 PRINT_ARTIST = "Artiest : %s"
 PRINT_GENRE = "Genre   : %s"
@@ -1398,7 +1398,7 @@ async def herken_fragment(
                 print(json.dumps(record, indent=2, ensure_ascii=False))
             else:
                 print()
-                print(PRINT_FOUND)
+                print(PRINT_FOUND % resultaat.get("_cratedigger_engine", "unknown"))
                 print(PRINT_TITLE % track.get("title"))
                 print(PRINT_ARTIST % track.get("subtitle"))
                 print(PRINT_GENRE % (genre or "Onbekend"))
