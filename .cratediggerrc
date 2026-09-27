@@ -3,38 +3,90 @@
 # Global hooks can be overridden per profile.
 # startup runs once when CrateDigger starts, before audio capture.
 # No machine-specific paths or secrets are stored here.
+#
 # Recognition engines are virtual keys. A profile selects keys through
-# `engines = ...`; each [ENGINE <key>] maps that key to a provider and
-# contains provider-specific configuration such as API credentials.
+#   engines = shazam, acrcloud, audd
+#
+# Each [ENGINE <key>] maps that virtual key to a provider and contains
+# provider-specific configuration such as API credentials.
+#
+# The engine list is ordered: CrateDigger tries engines from left to right.
+# A successful match stops the chain. A no-match or provider error moves
+# on to the next engine.
+#
+# This means Shazam does NOT have to be enabled. For example:
+#
+#   [PROFILE acrcloud_only]
+#   engines = acrcloud
+#
+# API credentials should normally not be committed to a public repository.
+# Put real secrets in a private/local config or another protected setup.
+
+
+# ---------------------------------------------------------------------------
+# Recognition engines
+# ---------------------------------------------------------------------------
 
 [ENGINE shazam]
+# Built-in Shazam provider; no API credentials required here.
 provider = shazam
 
+
 [ENGINE acrcloud]
+# ACRCloud Identify API.
+#
+# Uncomment and fill these values when using the engine:
 # provider = acrcloud
+# host = identify-<your-region>.acrcloud.com
 # access_key = your-acrcloud-access-key
 # access_secret = your-acrcloud-access-secret
+#
+# The exact host is account/region specific.
+
 
 [ENGINE audd]
+# AudD music recognition API.
+#
 # provider = audd
 # api_token = your-audd-api-token
+
+
+# Example: multiple virtual keys may point to the same provider.
+#
+# [ENGINE acrcloud_radio]
+# provider = acrcloud
+# host = identify-<your-region>.acrcloud.com
+# access_key = another-acrcloud-access-key
+# access_secret = another-acrcloud-access-secret
+#
+# This allows different profiles to use different ACRCloud accounts/configs.
+
+
+# ---------------------------------------------------------------------------
+# Global hooks
+# ---------------------------------------------------------------------------
 
 [HOOKS]
 
 # Add every newly recognised track to the Taskwarrior music queue.
-# All scalar Shazam fields are also available as $SHAZAM_* variables and
-# matching lowercase %placeholders. See README.md for the flattening rules.
+# All scalar Shazam/provider fields are also available as $SHAZAM_* variables
+# and matching lowercase %placeholders. See README.md for flattening rules.
 afterfound = shell exec task add "%artist %record %id %date" +MUSIC
 
 # Useful in watch/live mode.
-nomatch = shell exec printf '[CrateDigger] no match: %s\n' "$SHAZAM_SOURCE"
+nomatch = shell exec printf '[CrateDigger] no match: %s\\n' "$SHAZAM_SOURCE"
 
 # Log recognition/network errors.
-error = shell exec printf '[CrateDigger] error %s: %s\n' "$SHAZAM_EXIT_CODE" "$SHAZAM_ERROR" >&2
+error = shell exec printf '[CrateDigger] error %s: %s\\n' "$SHAZAM_EXIT_CODE" "$SHAZAM_ERROR" >&2
 
+
+# ---------------------------------------------------------------------------
+# Profiles
+# ---------------------------------------------------------------------------
 
 [PROFILE default]
 
+# First-match chain. With only one engine this means Shazam only.
 engines = shazam
 duration = 25
 interval = 5
@@ -50,10 +102,48 @@ live = false
 recursive = false
 
 
+[PROFILE shazam_only]
+
+# Explicit Shazam-only example.
+engines = shazam
+duration = 25
+
+
+[PROFILE acrcloud_only]
+
+# Shazam is NOT called for this profile.
+engines = acrcloud
+duration = 25
+
+
+[PROFILE fallback]
+
+# Try Shazam first; only continue to ACRCloud if Shazam has no match
+# or encounters an error.
+engines = shazam, acrcloud
+duration = 25
+
+
+[PROFILE fallback_reverse]
+
+# Same providers, opposite order.
+# Useful when you want ACRCloud to be tried before Shazam.
+engines = acrcloud, shazam
+duration = 25
+
+
+[PROFILE multi_engine]
+
+# Example with three providers. AudD is currently a configuration example;
+# it becomes usable when its provider implementation is enabled.
+engines = shazam, acrcloud, audd
+duration = 25
+
+
 [PROFILE crate]
 
-engines = shazam
 # Recursive local crate-digging.
+engines = shazam
 duration = 25
 recursive = true
 json = false
@@ -77,7 +167,7 @@ nomatch_dir = ~/.local/share/cratedigger/nomatch/radio
 
 # Explicitly keep the global hooks in this profile as well.
 afterfound = shell exec task add "%artist - %record (%year) | (SHAZAMID: %id) SEARCHDATE: (%date)" +MUSIC
-error = shell exec printf '[CrateDigger] error %s: %s\\n' "$SHAZAM_EXIT_CODE" "$SHAZAM_ERROR" >&2
+error = shell exec printf '[CrateDigger] error %s\\n' "$SHAZAM_EXIT_CODE" "$SHAZAM_ERROR" >&2
 
 # Radio misses are expected; don't print anything.
 nomatch = shell exec true
@@ -90,4 +180,4 @@ engines = shazam
 # through $SHAZAM_JSON / $SHAZAM_TRACK_JSON as well as flattened variables.
 json = true
 duration = 25
-afterfound = shell exec printf '%s\t%s\t%s\t%s\t%s\n' "$SHAZAM_ARTIST" "$SHAZAM_RECORD" "$SHAZAM_YEAR" "$SHAZAM_GENRES_PRIMARY" "$SHAZAM_CONFIDENCE"
+afterfound = shell exec printf '%s\\t%s\\t%s\\t%s\\t%s\\n' "$SHAZAM_ARTIST" "$SHAZAM_RECORD" "$SHAZAM_YEAR" "$SHAZAM_GENRES_PRIMARY" "$SHAZAM_CONFIDENCE"
