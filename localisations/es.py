@@ -47,7 +47,7 @@ PRINT_HOOKS_DEFAULTS = "[HOOKS] DEFAULTS"
 PRINT_HOOK_HEADER = "HOOK"
 PRINT_COMMAND_HEADER = "COMMAND"
 PRINT_FEATURE_HEADER = "FEATURE"
-PRINT_HOOK_DEDUPE = "🔗 afterfound hook overgeslagen: hetzelfde nummer als vorige herkenning."
+PRINT_HOOK_DEDUPE = "🔗 Hook afterfound omitido: misma canción que en el reconocimiento anterior."
 
 PRINT_INVALID_TIME = "Ongeldige tijd. Gebruik seconden, MM:SS of UU:MM:SS."
 PRINT_INVALID_TIME_URL = "Ongeldige tijd in de url: %s"
