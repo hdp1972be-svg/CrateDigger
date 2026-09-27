@@ -1245,6 +1245,12 @@ class LiveBesturing:
             if toets == b"q":
                 self.quit_requested = True
                 if process is not None and process.poll() is None:
+                    # A paused ffmpeg process is stopped with SIGSTOP. SIGTERM
+                    # becomes pending in that state, so release the process
+                    # first; otherwise quit only takes effect after pressing p.
+                    if self.paused:
+                        process.send_signal(signal.SIGCONT)
+                        self.paused = False
                     process.send_signal(signal.SIGTERM)
                 print(PRINT_QUIT)
                 continue
