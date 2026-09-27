@@ -1155,7 +1155,7 @@ def acrcloud_recognize(engine, temp_pad):
         )
 
     status = resultaat.get("status") or {}
-    status_code = str(status.get("code") or "")
+    status_code = str(status.get("code")) if status.get("code") is not None else ""
 
     # ACRCloud code 1001 means the provider answered successfully,
     # but no track was recognized. This is a normal no-match and
