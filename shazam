@@ -1552,7 +1552,8 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
                         debug=debug,
                     )
 
-            except RuntimeError as fout:                print("❌ %s" % fout, file=sys.stderr)
+            except RuntimeError as fout:
+                print("❌ %s" % fout, file=sys.stderr)
                 return 2
 
             finally:
