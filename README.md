@@ -357,7 +357,7 @@ The standard/common placeholders are:
 | `%artist` | `$SHAZAM_ARTIST` | Artist name |
 | `%record` | `$SHAZAM_RECORD` | Track title |
 | `%id` | `$SHAZAM_ID` | Provider-specific track identifier |
-| `%genre` | `$SHAZAM_GENRE` | Primary genre |
+| `%provider` | `$SHAZAM_PROVIDER` | Recognition provider that produced the match |\n| `%genre` | `$SHAZAM_GENRE` | Primary genre |
 | `%confidence` | `$SHAZAM_CONFIDENCE` | Recognition confidence/score when available |
 | `%year` | `$SHAZAM_YEAR` | Release year when available |
 | `%date` | `$SHAZAM_DATE` | Recognition date |
@@ -370,7 +370,7 @@ The standard/common placeholders are:
 | `%error` | `$SHAZAM_ERROR` | Error text for error hooks |
 | `%exit_code` | `$SHAZAM_EXIT_CODE` | CrateDigger exit/error code |
 
-The `%id` value is **not necessarily a Shazam ID anymore**. It is the identifier supplied by the recognition engine that produced the match. For example, a Shazam match provides its Shazam track key, while an ACRCloud match provides its ACRID.
+The `%provider` value identifies the actual recognition provider (for example `shazam` or `acrcloud`). The `%id` value is **not necessarily a Shazam ID anymore**. It is the identifier supplied by the recognition engine that produced the match. For example, a Shazam match provides its Shazam track key, while an ACRCloud match provides its ACRID.
 
 In addition to the common variables above, CrateDigger automatically exposes every scalar value found in the provider's returned track dictionary as a `SHAZAM_*` environment variable and therefore as a corresponding lowercase `%placeholder`. Nested dictionaries and arrays are flattened using uppercase underscore-separated names; array indexes are zero-based.
 
