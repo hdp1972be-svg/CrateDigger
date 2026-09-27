@@ -65,7 +65,7 @@ PRINT_HOOK_START_ERROR = "⚠️  %s hook kon niet worden gestart: %s"
 PRINT_HOOK_EXIT_ERROR = "⚠️  %s hook eindigde met exit code %s."
 
 PRINT_LOADING_AUDIO = "Audio laden..."
-PRINT_QUERY_SHAZAM = "Shazam raadplegen..."
+PRINT_QUERY_SHAZAM = "Recognition engine raadplegen..."\nPRINT_QUERY_ENGINE = "Recognition engine raadplegen: %s..."
 PRINT_TIMEOUT = "❌ Netwerk-timeout tijdens verbinden met Shazam."
 PRINT_CONNECTION_ERROR = "❌ Kan geen verbinding maken met Shazam (%s)."
 PRINT_NETWORK_DISCONNECTED = "❌ Netwerkverbinding verbroken."
@@ -1282,18 +1282,24 @@ async def herken_fragment(
 
         resultaat = {}
         laatste_fout = None
+        succesvolle_poging = False
 
         for engine_key in engine_keys:
-            print(kleur(
-                PRINT_QUERY_SHAZAM,
-                Kleuren.CYAN,
-            ))
+            print(
+                kleur(
+                    PRINT_QUERY_ENGINE % engine_key
+                    if "PRINT_QUERY_ENGINE" in globals()
+                    else PRINT_QUERY_SHAZAM,
+                    Kleuren.CYAN,
+                )
+            )
 
             try:
                 resultaat = await herken_met_engine(
                     engine_key,
                     temp_pad,
                 )
+                succesvolle_poging = True
             except asyncio.TimeoutError:
                 laatste_fout = ERROR_NETWORK_TIMEOUT
                 print(PRINT_TIMEOUT)
@@ -1323,25 +1329,31 @@ async def herken_fragment(
                 print(PRINT_UNEXPECTED_ERROR % e)
                 continue
 
-            # Shazam returns {"track": ...}; ACRCloud returns its
-            # identification envelope. Normalize the latter here so the
-            # existing output and hooks remain provider-agnostic.
+            # A provider may successfully answer while finding no match.
+            # That is a normal miss, so continue with the next configured
+            # engine instead of treating it as an error.
+            if not isinstance(resultaat, dict):
+                resultaat = {}
+
             if (
-                engine_key
-                and isinstance(resultaat, dict)
-                and "metadata" in resultaat
+                "metadata" in resultaat
+                and not "track" in resultaat
             ):
                 muziek = (
                     (resultaat.get("metadata") or {}).get("music") or []
                 )
-                if muziek:
-                    resultaat = {"track": muziek[0]}
+                resultaat = {"track": muziek[0]} if muziek else {}
 
-            if isinstance(resultaat, dict) and "track" in resultaat:
+            if resultaat.get("track"):
+                resultaat["_cratedigger_engine"] = engine_key
                 break
 
+            resultaat = {}
+
         else:
-            if laatste_fout:
+            # If at least one engine answered successfully, all engines
+            # simply missed: this is a normal no-match, not an error.
+            if not succesvolle_poging and laatste_fout:
                 voer_hook_uit(
                     "error",
                     hook_waarden(
