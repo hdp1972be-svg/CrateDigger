@@ -73,7 +73,7 @@ python -m pip install yt-dlp aiohttp pydub shazamio
 Then run:
 
 ```bash
-./shazam 'https://www.youtube.com/watch?v=VIDEO_ID'
+./cratedigger 'https://www.youtube.com/watch?v=VIDEO_ID'
 ```
 
 For later sessions:
@@ -81,7 +81,7 @@ For later sessions:
 ```bash
 cd CrateDigger
 . .venv/bin/activate
-./shazam ...
+./cratedigger ...
 ```
 
 If you only use local files, `yt-dlp` is not required. ALSA is available through the normal Linux audio stack; PulseAudio and JACK require their respective audio systems to be installed/configured separately.
@@ -93,9 +93,9 @@ If you only use local files, `yt-dlp` is not required. ALSA is available through
 Any HTTP(S) URL that the installed yt-dlp can extract can be used:
 
 ```bash
-./shazam 'https://www.youtube.com/watch?v=VIDEO_ID'
-./shazam 'https://soundcloud.com/artist/track'
-./shazam 'https://artist.bandcamp.com/track/example'
+./cratedigger 'https://www.youtube.com/watch?v=VIDEO_ID'
+./cratedigger 'https://soundcloud.com/artist/track'
+./cratedigger 'https://artist.bandcamp.com/track/example'
 ```
 
 Instagram media URLs are supported when the installed yt-dlp version supports the particular URL.
@@ -105,7 +105,7 @@ The default is to analyze a **25-second** fragment.
 ### Start at a timestamp
 
 ```bash
-./shazam 'https://www.youtube.com/watch?v=VIDEO_ID' -t 10:00
+./cratedigger 'https://www.youtube.com/watch?v=VIDEO_ID' -t 10:00
 ```
 
 The `--time` option accepts seconds, `MM:SS`, or `HH:MM:SS`. If the URL contains a YouTube `t=` parameter, that timestamp is used automatically. An explicit `-t/--time` takes precedence.
@@ -113,7 +113,7 @@ The `--time` option accepts seconds, `MM:SS`, or `HH:MM:SS`. If the URL contains
 ### Local media file
 
 ```bash
-./shazam recording.mp3
+./cratedigger recording.mp3
 ```
 
 Local media bypasses yt-dlp.
@@ -123,7 +123,7 @@ Local media bypasses yt-dlp.
 Recognize every supported media file in a directory:
 
 ```bash
-./shazam --recursive ~/Music/unknown
+./cratedigger --recursive ~/Music/unknown
 ```
 
 Subdirectories are included automatically by `--recursive`.
@@ -133,13 +133,13 @@ Subdirectories are included automatically by `--recursive`.
 Watch a directory continuously and recognize newly appearing or changed media files:
 
 ```bash
-./shazam --watch ~/Music/incoming
+./cratedigger --watch ~/Music/incoming
 ```
 
 Combine it with `--recursive` to watch subdirectories too:
 
 ```bash
-./shazam --watch ~/Music/incoming --recursive
+./cratedigger --watch ~/Music/incoming --recursive
 ```
 
 Press `Ctrl-C` to stop watching.
@@ -147,8 +147,8 @@ Press `Ctrl-C` to stop watching.
 ### Live audio
 
 ```bash
-./shazam --live --input pulse --device default
-./shazam --live --input pulse --loop --interval 5 --delay 10
+./cratedigger --live --input pulse --device default
+./cratedigger --live --input pulse --loop --interval 5 --delay 10
 ```
 
 During live mode, `p` pauses/resumes, `n` discards the current cycle and starts a fresh recording, and `q` quits. `Ctrl-C` also aborts cleanly and restores the terminal's original settings. A real-time PCM level meter is displayed. Completely silent captures are not sent to Shazam.
@@ -158,7 +158,7 @@ During live mode, `p` pauses/resumes, `n` discards the current cycle and starts 
 Use `--debug` when diagnosing capture or recognition problems:
 
 ```bash
-./shazam --live --input pulse --device shazam_sink.monitor --debug
+./cratedigger --live --input pulse --device shazam_sink.monitor --debug
 ```
 
 Debug mode keeps temporary live WAV fragments in `/tmp` instead of deleting them after recognition and prints their paths for inspection. Without `--debug`, temporary live fragments are cleaned up normally.
@@ -176,15 +176,15 @@ Examples:
 
 ```bash
 # ALSA
-./shazam --live --input alsa --device default
-./shazam --live --input alsa --device hw:1,0
+./cratedigger --live --input alsa --device default
+./cratedigger --live --input alsa --device hw:1,0
 
 # PulseAudio
-./shazam --live --input pulse --device default
-./shazam --live --input pulse --device shazam_sink.monitor
+./cratedigger --live --input pulse --device default
+./cratedigger --live --input pulse --device shazam_sink.monitor
 
 # JACK
-./shazam --live --input jack --device system:capture_1
+./cratedigger --live --input jack --device system:capture_1
 ```
 
 `--device` is passed directly to FFmpeg as the input device/source name. The exact names available therefore depend on the audio system and its current configuration. If you are unsure what to use, inspect the devices/sources with the tools provided by your audio stack (for example `pactl list short sources` for PulseAudio).
@@ -219,7 +219,7 @@ The BlueZ monitor name above is an example; the actual name depends on the activ
 Then:
 
 ```bash
-./shazam --live --input pulse --device shazam_sink.monitor --loop
+./cratedigger --live --input pulse --device shazam_sink.monitor --loop
 ```
 
 ## Shazam metadata and hook variables
@@ -287,15 +287,15 @@ The `startup` hook is useful for preparing external resources before capture sta
 
 ## `afterfound` hooks
 
-Recognized tracks can trigger an optional shell command through a `.shazamrc` configuration file.
+Recognized tracks can trigger an optional shell command through a `.cratediggerrc` configuration file.
 
 The first existing configuration file from these locations is used:
 
 ```text
-./.shazamrc
-~/.shazamrc
-~/.config/shazam/shazamrc
-~/.config/shazam/.shazamrc
+./.cratediggerrc
+~/.cratediggerrc
+~/.config/cratedigger/cratediggerrc
+~/.config/shazam/.cratediggerrc
 ```
 
 ### Example: dump every discovered track into a Taskwarrior MUSIC queue
@@ -357,7 +357,7 @@ JSON output includes the same value as `confidence` when available.
 
 ### Hooks
 
-Hooks are configured in `.shazamrc` under `[HOOKS]`. The five lifecycle events are:
+Hooks are configured in `.cratediggerrc` under `[HOOKS]`. The five lifecycle events are:
 
 - `beforefound` — runs after Shazam has identified a track, immediately before `afterfound`
 - `afterfound` — runs after a new recognition; repeated identical consecutive matches are suppressed
@@ -402,7 +402,7 @@ nomatch = shell exec ~/bin/radio-miss.sh
 ```
 ### Profiles
 
-Profiles can be defined in `.shazamrc`. The built-in `default` profile keeps the current command-line defaults, so existing behaviour is unchanged.
+Profiles can be defined in `.cratediggerrc`. The built-in `default` profile keeps the current command-line defaults, so existing behaviour is unchanged.
 
 ```ini
 [PROFILE default]
@@ -429,13 +429,13 @@ loop = true
 Use a profile with:
 
 ```bash
-./shazam --profile radio
+./cratedigger --profile radio
 ```
 
 Inspect configured profiles and their effective settings with:
 
 ```bash
-./shazam --list-profiles
+./cratedigger --list-profiles
 ```
 
 Explicit command-line options still override the profile values.
@@ -498,7 +498,7 @@ Then capture from `shazam_sink.monitor`:
 If Bluetooth is unavailable, the automated setup uses `SHAZAM_AUDIO_FALLBACK_SOURCE` when set; otherwise it tries the default PulseAudio sink monitor and then another available monitor source. This keeps the `radio` profile usable when the Bluetooth device is temporarily disconnected.
 
 ```bash
-./shazam --live --input pulse --device shazam_sink.monitor --loop
+./cratedigger --live --input pulse --device shazam_sink.monitor --loop
 ```
 
 ## JSON and CSV pipelines
@@ -658,7 +658,7 @@ Hook failures do not invalidate an otherwise successful Shazam recognition; a no
 ## JSON output
 
 ```bash
-./shazam 'https://www.youtube.com/watch?v=VIDEO_ID' --json
+./cratedigger 'https://www.youtube.com/watch?v=VIDEO_ID' --json
 ```
 
 Successful recognition returns the complete Shazam track object:
@@ -705,7 +705,7 @@ Ever found a track in a long DJ mix, livestream, playlist, or random online vide
 Instead of playing the source and holding your phone up to Shazam:
 
 ```bash
-./shazam 'https://www.youtube.com/watch?v=VIDEO_ID' -t 47:23
+./cratedigger 'https://www.youtube.com/watch?v=VIDEO_ID' -t 47:23
 ```
 
 That's it.
