@@ -52,6 +52,63 @@ def bepaal_kleur():
 kleur.actief = bepaal_kleur()
 
 
+# Terminal interface strings
+PRINT_PROFILE = "⚙️  Profile: %s"
+PRINT_CONFIG_READ_ERROR = "⚠️  Kan %s niet lezen: %s"
+PRINT_NO_CONFIG = "Geen .shazamrc gevonden; alleen profiel 'default' is beschikbaar."
+PRINT_HOOK_EXECUTING = "🔗 Executing %s hook..."
+PRINT_HOOK_START_ERROR = "⚠️  %s hook kon niet worden gestart: %s"
+PRINT_HOOK_EXIT_ERROR = "⚠️  %s hook eindigde met exit code %s."
+
+PRINT_LOADING_AUDIO = "Audio laden..."
+PRINT_QUERY_SHAZAM = "Shazam raadplegen..."
+PRINT_TIMEOUT = "❌ Netwerk-timeout tijdens verbinden met Shazam."
+PRINT_CONNECTION_ERROR = "❌ Kan geen verbinding maken met Shazam (%s)."
+PRINT_NETWORK_DISCONNECTED = "❌ Netwerkverbinding verbroken."
+PRINT_HTTP_ERROR = "❌ HTTP-fout %s van Shazam."
+PRINT_DNS_ERROR = "❌ DNS lookup mislukt."
+PRINT_NETWORK_ERROR = "❌ Netwerkfout: %s"
+PRINT_UNEXPECTED_ERROR = "❌ Onverwachte fout tijdens herkenning: %s"
+
+PRINT_FOUND = "✅ Nummer gevonden"
+PRINT_TITLE = "Titel   : %s"
+PRINT_ARTIST = "Artiest : %s"
+PRINT_GENRE = "Genre   : %s"
+PRINT_MATCH = "Match   : %g"
+PRINT_YEAR = "Jaar    : %s"
+PRINT_ALBUM = "Album   : %s"
+PRINT_SOURCE = "Bron    : %s"
+
+PRINT_NO_MATCH = "❌ Geen herkenning."
+PRINT_FRAGMENT_SAVED = "🎧 Fragment bewaard: file://%s"
+PRINT_FRAGMENT_SAVED_PLAIN = "Fragment bewaard: %s"
+
+PRINT_PAUSE_HINT = "Druk 'p' om te pauzeren/hervatten."
+PRINT_QUIT = "
+⏹ Quit requested"
+PRINT_RESET = "
+↻ Reset — nieuwe opname vanaf 0s"
+PRINT_CONTINUED = "
+▶ Continued"
+PRINT_PAUSED = "
+⏸ Paused — press 'p' to continue"
+
+PRINT_LISTENING = "Luisteren via %s (%ss)..."
+PRINT_SILENCE = "⚠️  Captured audio contains only silence (all samples are zero) — Shazam wordt niet geraadpleegd."
+PRINT_SILENT_FRAGMENT_SAVED = "🎧 Stil fragment bewaard: file://%s"
+PRINT_NEXT_RECORDING = "Volgende opname over %ss..."
+PRINT_DELAY = "Delay na gevonden nummer: %ss..."
+
+PRINT_NO_MEDIA = "Geen ondersteunde mediafiles gevonden."
+PRINT_FILE_PROGRESS = "
+[%s/%s] %s"
+PRINT_WATCHING = "👀 Watching: %s"
+PRINT_STOP_HINT = "Ctrl-C om te stoppen."
+PRINT_NEW_FILE = "
+📁 Nieuw bestand: %s"
+PRINT_DEBUG_FRAGMENT = "Debugfragment bewaard: %s"
+PRINT_FRAGMENT_KEPT = "Fragment bewaard: %s"
+
 import aiohttp
 import socket
 import asyncio
@@ -77,7 +134,7 @@ def laad_hooks_config():
         try:
             config.read(pad, encoding="utf-8")
         except (OSError, configparser.Error) as e:
-            print(f"⚠️  Kan {pad} niet lezen: {e}", file=sys.stderr)
+            print(PRINT_CONFIG_READ_ERROR % (pad, e), file=sys.stderr)
             return None
 
         return config
@@ -87,7 +144,7 @@ def laad_hooks_config():
 
 def toon_profile_status(naam, waarden):
     """Toon bij startup welk profiel en welke effectieve profielwaarden actief zijn."""
-    print(kleur(f"⚙️  Profile: {naam}", Kleuren.CYAN))
+    print(kleur(PRINT_PROFILE % naam, Kleuren.CYAN))
     for sleutel, waarde in waarden.items():
         print(f"   {sleutel} = {waarde}")
 
@@ -96,7 +153,7 @@ def toon_profiles():
     """Toon alle profielen in automatisch opgesplitste, terminal-brede tabellen."""
     config = laad_hooks_config()
     if config is None:
-        print("Geen .shazamrc gevonden; alleen profiel 'default' is beschikbaar.")
+        print(PRINT_NO_CONFIG)
         return
     profielen = sorted(
         sectie[len("PROFILE "):].strip()
@@ -496,7 +553,7 @@ def voer_hook_uit(
 
     omgeving = os.environ.copy()
     omgeving.update(waarden)
-    print(kleur(f"🔗 Executing {event} hook...", Kleuren.MAGENTA))
+    print(kleur(PRINT_HOOK_EXECUTING % event, Kleuren.MAGENTA))
 
     try:
         resultaat = subprocess.run(
@@ -507,7 +564,7 @@ def voer_hook_uit(
         )
     except OSError as e:
         print(
-            f"⚠️  {event} hook kon niet worden gestart: {e}",
+            PRINT_HOOK_START_ERROR % (event, e),
             file=sys.stderr,
         )
         return
@@ -864,7 +921,7 @@ async def herken_fragment(
             if not os.path.isfile(mp3_pad):
                 raise FileNotFoundError(mp3_pad)
 
-            print("Audio laden...")
+            print(PRINT_LOADING_AUDIO)
             audio = AudioSegment.from_file(mp3_pad)
 
             start_ms = zet_tijd_om_naar_ms(start_tijd)
@@ -898,13 +955,13 @@ async def herken_fragment(
                 parameters=["-ar", "16000", "-ac", "1"],
             )
 
-        print(kleur("Shazam raadplegen...", Kleuren.CYAN))
+        print(kleur(PRINT_QUERY_SHAZAM, Kleuren.CYAN))
 
         try:
             resultaat = await shazam.recognize(temp_pad)
 
         except asyncio.TimeoutError:
-            print("❌ Netwerk-timeout tijdens verbinden met Shazam.")
+            print(PRINT_TIMEOUT)
             voer_hook_uit(
                 "error",
                 hook_waarden(
@@ -919,7 +976,7 @@ async def herken_fragment(
             return 2
 
         except aiohttp.ClientConnectorError as e:
-            print(f"❌ Kan geen verbinding maken met Shazam ({e.host}).")
+            print(PRINT_CONNECTION_ERROR % e.host)
             voer_hook_uit(
                 "error",
                 hook_waarden(
@@ -934,7 +991,7 @@ async def herken_fragment(
             return 2
 
         except aiohttp.ClientConnectionError:
-            print("❌ Netwerkverbinding verbroken.")
+            print(PRINT_NETWORK_DISCONNECTED)
             voer_hook_uit(
                 "error",
                 hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
@@ -944,7 +1001,7 @@ async def herken_fragment(
             return 2
 
         except aiohttp.ClientResponseError as e:
-            print(f"❌ HTTP-fout {e.status} van Shazam.")
+            print(PRINT_HTTP_ERROR % e.status)
             voer_hook_uit(
                 "error",
                 hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
@@ -954,7 +1011,7 @@ async def herken_fragment(
             return 2
 
         except socket.gaierror:
-            print("❌ DNS lookup mislukt.")
+            print(PRINT_DNS_ERROR)
             voer_hook_uit(
                 "error",
                 hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
@@ -964,7 +1021,7 @@ async def herken_fragment(
             return 2
 
         except aiohttp.ClientError as e:
-            print(f"❌ Netwerkfout: {e}")
+            print(PRINT_NETWORK_ERROR % e)
             voer_hook_uit(
                 "error",
                 hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
@@ -974,7 +1031,7 @@ async def herken_fragment(
             return 2
 
         except Exception as e:
-            print(f"❌ Onverwachte fout tijdens herkenning: {e}")
+            print(PRINT_UNEXPECTED_ERROR % e)
             voer_hook_uit(
                 "error",
                 hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
@@ -1006,15 +1063,15 @@ async def herken_fragment(
                 print(json.dumps(record, indent=2, ensure_ascii=False))
             else:
                 print()
-                print("✅ Nummer gevonden")
-                print(f"Titel   : {track.get('title')}")
-                print(f"Artiest : {track.get('subtitle')}")
-                print(f"Genre   : {genre or 'Onbekend'}")
+                print(PRINT_FOUND)
+                print(PRINT_TITLE % track.get("title"))
+                print(PRINT_ARTIST % track.get("subtitle"))
+                print(PRINT_GENRE % (genre or "Onbekend"))
                 if confidence is not None:
-                    print(f"Match   : {confidence:g}")
+                    print(PRINT_MATCH % confidence)
                 jaar = _shazam_jaar(track)
                 if jaar:
-                    print(f"Jaar    : {jaar}")
+                    print(PRINT_YEAR % jaar)
                 if debug:
                     extra = _shazam_flatten(track)
                     for naam, waarde in extra.items():
@@ -1027,7 +1084,7 @@ async def herken_fragment(
                 else:
                     album = track.get("album")
                     if isinstance(album, dict) and album.get("name"):
-                        print(f"Album   : {album.get('name')}")
+                        print(PRINT_ALBUM % album.get("name"))
                     sections = track.get("sections")
                     if isinstance(sections, list):
                         for section in sections:
@@ -1053,7 +1110,7 @@ async def herken_fragment(
                         if waarde:
                             print(f"{label:8}: {waarde}")
                 if source:
-                    print(f"Bron    : {source}")
+                    print(PRINT_SOURCE % source)
 
             waarden = hook_waarden(
                 track=track,
@@ -1090,8 +1147,9 @@ async def herken_fragment(
             }
             print(json.dumps(record, ensure_ascii=False))
         else:
-            print("❌ Geen herkenning.")            if nomatch_file:
-                print(f"🎧 Fragment bewaard: file://{nomatch_file}")
+            print(PRINT_NO_MATCH)
+            if nomatch_file:
+                print(PRINT_FRAGMENT_SAVED % nomatch_file)
 
         voer_hook_uit(
             "nomatch",
@@ -1116,7 +1174,7 @@ async def herken_fragment(
         ):
             os.remove(temp_pad)
         elif temp_pad and keep_temp:
-            print(f"Fragment bewaard: {temp_pad}")
+            print(PRINT_FRAGMENT_SAVED_PLAIN % temp_pad)
 
 
 
@@ -1175,7 +1233,7 @@ class LiveBesturing:
         # loop also calls stop() explicitly, but this covers exits that happen
         # outside that control flow.
         atexit.register(self.stop)
-        print(kleur("Druk 'p' om te pauzeren/hervatten.", Kleuren.YELLOW))
+        print(kleur(PRINT_PAUSE_HINT, Kleuren.YELLOW))
 
     def verwerk_toetsen(self, process=None):
         while True:
@@ -1188,13 +1246,13 @@ class LiveBesturing:
                 self.quit_requested = True
                 if process is not None and process.poll() is None:
                     process.send_signal(signal.SIGTERM)
-                print("\n⏹ Quit requested")
+                print(PRINT_QUIT)
                 continue
             if toets == b"n":
                 self.reset_requested = True
                 if process is not None and process.poll() is None:
                     process.send_signal(signal.SIGTERM)
-                print("\n↻ Reset — nieuwe opname vanaf 0s")
+                print(PRINT_RESET)
                 continue
 
             if toets != b"p":
@@ -1204,12 +1262,12 @@ class LiveBesturing:
                 if process is not None and process.poll() is None:
                     process.send_signal(signal.SIGCONT)
                 self.paused = False
-                print("\n▶ Continued")
+                print(PRINT_CONTINUED)
             else:
                 if process is not None and process.poll() is None:
                     process.send_signal(signal.SIGSTOP)
                 self.paused = True
-                print("\n⏸ Paused — press 'p' to continue")
+                print(PRINT_PAUSED)
 
     def wacht(self, seconden):
         """Wacht met p-pauze en n-reset. Geeft reset/quit-status terug."""
@@ -1309,7 +1367,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
         "-",
     ]
 
-    print(f"Luisteren via {invoer} ({duur_sec}s)...")
+    print(PRINT_LISTENING % (invoer, duur_sec))
 
     process = subprocess.Popen(
         command,
@@ -1476,7 +1534,7 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
                         profile_name=profile_name,
                     )
                     if opgeslagen_pad:
-                        print(f"🎧 Stil fragment bewaard: file://{opgeslagen_pad}")
+                        print(PRINT_SILENT_FRAGMENT_SAVED % opgeslagen_pad)
                         fragment_pad = None
                     code = 1
                 else:
@@ -1493,7 +1551,7 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
                         debug=debug,
                     )
 
-            except RuntimeError as fout:                print(f"❌ {fout}", file=sys.stderr)
+            except RuntimeError as fout:                print("❌ %s" % fout, file=sys.stderr)
                 return 2
 
             finally:
@@ -1506,16 +1564,16 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
                     os.remove(fragment_pad)
                 elif fragment_pad and (keep_temp or debug):
                     print(
-                        f"Debugfragment bewaard: {fragment_pad}"
+                        PRINT_DEBUG_FRAGMENT % fragment_pad
                         if debug
-                        else f"Fragment bewaard: {fragment_pad}"
+                        else PRINT_FRAGMENT_KEPT % fragment_pad
                     )
 
             if not loop:
                 return code
 
             if interval_sec > 0:
-                print(f"Volgende opname over {interval_sec}s...")
+                print(PRINT_NEXT_RECORDING % interval_sec)
                 wacht_resultaat = besturing.wacht(interval_sec)
                 if wacht_resultaat == "quit":
                     return 130
@@ -1523,7 +1581,7 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
                     continue
 
             if code == 0 and delay_sec > 0:
-                print(f"Delay na gevonden nummer: {delay_sec}s...")
+                print(PRINT_DELAY % delay_sec)
                 wacht_resultaat = besturing.wacht(delay_sec)
                 if wacht_resultaat == "quit":
                     return 130
@@ -1575,14 +1633,14 @@ async def batch_modus(pad, recursief, starttijd, duur, json_output, keep_temp, p
     """Herken alle lokale mediafiles in een directory."""
     bestanden = verzamel_media_bestanden(pad, recursief)
     if not bestanden:
-        print("Geen ondersteunde mediafiles gevonden.")
+        print(PRINT_NO_MEDIA)
         return 1
 
     laatste_code = 1
     totaal = len(bestanden)
 
     for index, bestand in enumerate(bestanden, 1):
-        print(kleur(f"\n[{index}/{totaal}] {bestand}", Kleuren.BLUE))
+        print(kleur(PRINT_FILE_PROGRESS % (index, totaal, bestand), Kleuren.BLUE))
         try:
             code = await herken_fragment(
                 bestand,
@@ -1594,7 +1652,7 @@ async def batch_modus(pad, recursief, starttijd, duur, json_output, keep_temp, p
                 source_type="file",
                 profile_name=profile_name,            )
         except (FileNotFoundError, ValueError) as fout:
-            print(f"❌ {fout}", file=sys.stderr)
+            print("❌ %s" % fout, file=sys.stderr)
             code = 2
 
         if code == 0:
@@ -1610,8 +1668,8 @@ async def watch_modus(pad, recursief, duur, json_output, keep_temp, profile_name
         raise FileNotFoundError(pad)
 
     gezien = set()
-    print(kleur(f"👀 Watching: {pad}", Kleuren.CYAN))
-    print(kleur("Ctrl-C om te stoppen.", Kleuren.DIM))
+    print(kleur(PRINT_WATCHING % pad, Kleuren.CYAN))
+    print(kleur(PRINT_STOP_HINT, Kleuren.DIM))
 
     try:
         while True:
@@ -1628,7 +1686,7 @@ async def watch_modus(pad, recursief, duur, json_output, keep_temp, profile_name
 
                 gezien.add(sleutel)
 
-                print(kleur(f"\n📁 Nieuw bestand: {bestand}", Kleuren.BLUE))
+                print(kleur(PRINT_NEW_FILE % bestand, Kleuren.BLUE))
                 try:
                     await herken_fragment(
                         bestand,
@@ -1641,7 +1699,7 @@ async def watch_modus(pad, recursief, duur, json_output, keep_temp, profile_name
                         profile_name=profile_name,
                     )
                 except (FileNotFoundError, ValueError) as fout:
-                    print(f"❌ {fout}", file=sys.stderr)
+                    print("❌ %s" % fout, file=sys.stderr)
 
             await asyncio.sleep(1)
 
