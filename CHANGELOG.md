@@ -10,6 +10,7 @@ All notable changes to CrateDigger are documented here.
 - Virtual `[ENGINE <key>]` configuration sections.
 - ACRCloud recognition provider support.
 - AudD recognition provider support in the multi-provider dispatcher.
+- Configurable `firstmatch` and `all` detection modes.
 - Multi-provider fallback while reusing the same captured audio fragment.
 - Provider-aware hook variable `%provider` / `$SHAZAM_PROVIDER`.
 - Expanded hook placeholders for recognition metadata, audio files, source information and errors.
