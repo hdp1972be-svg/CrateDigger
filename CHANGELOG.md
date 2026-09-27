@@ -9,6 +9,7 @@ All notable changes to CrateDigger are documented here.
 - Profile-selectable recognition engine chains via `engines = ...`.
 - Virtual `[ENGINE <key>]` configuration sections.
 - ACRCloud recognition provider support.
+- AudD recognition provider support in the multi-provider dispatcher.
 - Multi-provider fallback while reusing the same captured audio fragment.
 - Provider-aware hook variable `%provider` / `$SHAZAM_PROVIDER`.
 - Expanded hook placeholders for recognition metadata, audio files, source information and errors.
@@ -43,6 +44,7 @@ Current provider architecture includes:
 
 - Shazam
 - ACRCloud
+- AudD
 
 The configuration is designed so additional providers can be added without changing the profile model.
 
