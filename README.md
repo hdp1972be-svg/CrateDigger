@@ -2,7 +2,7 @@
 
 Identify music from online media, live audio, or local media from a short audio segment — directly from the command line.
 
-The tool combines **yt-dlp**, **FFmpeg/pydub**, and **ShazamIO**: it retrieves online media when given a URL supported by yt-dlp, extracts the requested time window, and sends that short fragment to Shazam for recognition.
+The tool combines **yt-dlp**, **FFmpeg/pydub**, and pluggable recognition engines: it retrieves online media when given a URL supported by yt-dlp, extracts the requested time window, and sends that short fragment through the configured recognition-engine chain.
 
 I built this because I wanted a small CLI tool for **crate digging across online media, local files, and live audio** — give it a source, optionally point it at a timestamp, and identify the music playing there.
 
@@ -42,6 +42,9 @@ Online-source support is provided by **yt-dlp**, so the exact URLs that work dep
 - 🎧 Keep unmatched audio fragments in a configurable profile directory (or `/tmp` by default) with a `file://` link and expose the path to `nomatch` hooks
 - 🔌 Automatically rebuild the PulseAudio/Bluetooth loopback after audio-device reconnects
 - 🔄 Fall back to the default/available PulseAudio monitor when Bluetooth is unavailable
+- 🔌 Multiple recognition providers with ordered fallback (currently Shazam and ACRCloud)
+- ⚙️ Virtual engine keys with provider-specific configuration and credentials
+- 🧩 Reuse the same captured audio fragment across all recognition engines in the fallback chain
 
 ## Requirements
 
@@ -222,9 +225,102 @@ Then:
 ./cratedigger --live --input pulse --device shazam_sink.monitor --loop
 ```
 
-## Shazam metadata and hook variables
+## Recognition engines
 
-CrateDigger passes the Shazam track dictionary through without reducing it to a fixed hand-picked field list. ShazamIO documents the recognition result as a dictionary and provides serialization for the full track response, including track metadata, artwork and provider links. citeturn0search0turn0search3
+CrateDigger separates the **recognition engine key** used by a profile from the actual provider implementation. A profile selects an ordered list of virtual engine keys with `engines`:
+
+```ini
+[PROFILE default]
+engines = shazam
+
+[PROFILE acrcloud_only]
+engines = acrcloud
+
+[PROFILE fallback]
+engines = shazam, acrcloud
+
+[PROFILE fallback_reverse]
+engines = acrcloud, shazam
+```
+
+The engines are tried from left to right. CrateDigger captures the audio fragment **once** and reuses the same fragment for every engine in the chain.
+
+The current providers are:
+
+| Provider | Engine key | Configuration |
+|---|---|---|
+| Shazam | `shazam` | Uses ShazamIO |
+| ACRCloud | `acrcloud` | ACRCloud Identify API |
+
+### Virtual engine configuration
+
+Engine definitions live in `.cratediggerrc`:
+
+```ini
+[ENGINE shazam]
+provider = shazam
+
+[ENGINE acrcloud]
+provider = acrcloud
+host = identify-<your-region>.acrcloud.com
+access_key = your-acrcloud-access-key
+access_secret = your-acrcloud-access-secret
+```
+
+The engine key is intentionally separate from the provider name. This makes it possible to configure multiple virtual instances of the same provider:
+
+```ini
+[ENGINE acrcloud_radio]
+provider = acrcloud
+host = identify-<your-region>.acrcloud.com
+access_key = another-access-key
+access_secret = another-access-secret
+
+[PROFILE radio]
+engines = shazam, acrcloud_radio
+```
+
+Keep real API credentials out of a public repository.
+
+### Fallback semantics
+
+Each engine can produce one of three meaningful outcomes:
+
+1. **Match** — a track was identified; the chain stops.
+2. **No match** — the provider answered successfully but found nothing; CrateDigger continues with the next engine.
+3. **Error** — the provider could not complete recognition; the error is shown and CrateDigger continues with the next engine.
+
+If at least one provider answered successfully but all providers returned no match, the final result is a normal `No match`.
+
+```text
+capture 20s
+    ↓
+Shazam
+    ├── match ───────────────→ Track found
+    └── no match
+          ↓
+       ACRCloud
+          ├── match ─────────→ Track found
+          └── no match ──────→ No match
+```
+
+The successful match also records the engine that produced it, so terminal output identifies the provider:
+
+```text
+Recognition engine raadplegen: shazam...
+Recognition engine raadplegen: acrcloud...
+
+✅ Nummer gevonden via acrcloud
+Title   : Jordan
+Artist  : Mr Assister
+...
+```
+
+The normalized track result is then passed to the existing hooks, so `afterfound` does not need provider-specific orchestration.
+
+## Recognition metadata and hook variables
+
+CrateDigger preserves provider metadata in a normalized track result. Shazam results are still exposed in full through the `SHAZAM_*` hook variables described below; provider-specific metadata can also be retained in the normalized result. ShazamIO documents the recognition result as a dictionary and provides serialization for the full track response, including track metadata, artwork and provider links. citeturn0search0turn0search3
 
 For every scalar value in the returned `track` object, CrateDigger creates a `SHAZAM_*` environment variable by flattening nested dictionaries and arrays.
 
@@ -278,10 +374,10 @@ For arbitrary nested data, `$SHAZAM_JSON` is the authoritative escape hatch.
 CrateDigger supports five lifecycle events:
 
 - `startup` — runs once when CrateDigger starts, before audio/network work
-- `beforefound` — runs after Shazam identifies a track, immediately before `afterfound`
+- `beforefound` — runs after an engine identifies a track, immediately before `afterfound`
 - `afterfound` — runs after a new recognition; repeated identical matches are suppressed
-- `nomatch` — runs when Shazam responds successfully but does not identify the fragment
-- `error` — runs for recognition/network errors
+- `nomatch` — runs when the configured engine chain completes without identifying the fragment
+- `error` — runs for recognition/provider/network errors
 
 The `startup` hook is useful for preparing external resources before capture starts, such as PulseAudio sinks and loopbacks. Profile hooks override global `[HOOKS]` values for the same event.
 
