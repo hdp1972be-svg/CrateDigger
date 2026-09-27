@@ -376,7 +376,8 @@ The standard/common placeholders are:
 | `%artist` | `$SHAZAM_ARTIST` | Artist name |
 | `%record` | `$SHAZAM_RECORD` | Track title |
 | `%id` | `$SHAZAM_ID` | Provider-specific track identifier |
-| `%provider` | `$SHAZAM_PROVIDER` | Recognition provider that produced the match |\n| `%genre` | `$SHAZAM_GENRE` | Primary genre |
+| `%provider` | `$SHAZAM_PROVIDER` | Recognition provider that produced the match |
+| `%genre` | `$SHAZAM_GENRE` | Primary genre |
 | `%confidence` | `$SHAZAM_CONFIDENCE` | Recognition confidence/score when available |
 | `%year` | `$SHAZAM_YEAR` | Release year when available |
 | `%date` | `$SHAZAM_DATE` | Recognition date |
@@ -409,7 +410,13 @@ For hooks such as:
 afterfound = shell exec task add "%artist - %record (%year) | (ID: %id) SEARCHDATE: (%date)" +MUSIC
 ```
 
-CrateDigger expands the placeholders before executing the shell command.
+CrateDigger expands the placeholders before executing the shell command. `%provider` expands to the actual provider that produced the match, such as `shazam`, `acrcloud`, or `audd`:
+
+```ini
+afterfound = shell exec printf '%s | %s | provider=%s\\n' "%artist" "%record" "%provider"
+```
+
+The equivalent environment variable is `$SHAZAM_PROVIDER`. This is especially useful with `detection_mode = all`, where the same audio fragment can produce separate matches from multiple providers.
 
 ### Metadata placeholders
 
@@ -680,6 +687,15 @@ To turn recognition data into CSV, `jq` can produce properly quoted CSV fields:
 ```bash
 jq -r '[.artist,.title,.genre,.id,.date,.url,.youtubeid] | @csv'
 ```
+
+For a practical `afterfound` hook, the same approach can append one CSV row per recognized track and create the header on first use:
+
+```ini
+[HOOKS]
+afterfound = shell exec sh -c 'csv="$HOME/.local/share/cratedigger/tracks.csv"; mkdir -p "$(dirname "$csv")"; if [ ! -f "$csv" ]; then printf "%s\\n" "artist,title,genre,id,date,url,youtubeid,provider" > "$csv"; fi; jq -rn --arg artist "$SHAZAM_ARTIST" --arg title "$SHAZAM_RECORD" --arg genre "$SHAZAM_GENRE" --arg id "$SHAZAM_ID" --arg date "$SHAZAM_DATE" --arg url "$SHAZAM_URL" --arg youtubeid "$YOUTUBE_ID" --arg provider "$SHAZAM_PROVIDER" "[\\$artist,\\$title,\\$genre,\\$id,\\$date,\\$url,\\$youtubeid,\\$provider] | @csv" >> "$csv"'
+```
+
+This appends a single, correctly quoted CSV record for each hook invocation, including the recognition provider. With `detection_mode = all`, each provider match is written as its own row. For a larger or more complex pipeline, point `afterfound` at a small script instead; that keeps quoting and file management easier to maintain.
 
 For example, given a JSON record:
 
