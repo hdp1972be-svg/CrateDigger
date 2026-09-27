@@ -42,7 +42,7 @@ Online-source support is provided by **yt-dlp**, so the exact URLs that work dep
 - 🎧 Keep unmatched audio fragments in a configurable profile directory (or `/tmp` by default) with a `file://` link and expose the path to `nomatch` hooks
 - 🔌 Automatically rebuild the PulseAudio/Bluetooth loopback after audio-device reconnects
 - 🔄 Fall back to the default/available PulseAudio monitor when Bluetooth is unavailable
-- 🔌 Multiple recognition providers with ordered fallback (currently Shazam and ACRCloud)
+- 🔌 Multiple recognition providers with ordered fallback (Shazam, ACRCloud and AudD)
 - ⚙️ Virtual engine keys with provider-specific configuration and credentials
 - 🧩 Reuse the same captured audio fragment across all recognition engines in the fallback chain
 
@@ -245,12 +245,27 @@ engines = acrcloud, shazam
 
 The engines are tried from left to right. CrateDigger captures the audio fragment **once** and reuses the same fragment for every engine in the chain.
 
+### Detection mode
+
+Profiles support two recognition modes:
+
+    [PROFILE default]
+    engines = shazam, acrcloud, audd
+    detection_mode = firstmatch
+
+- **`firstmatch`** (default): engines are queried from left to right. The first successful match stops recognition; a no-match or provider error continues to the next engine.
+- **`all`**: every configured engine is queried with the same audio fragment. Every successful provider result is reported independently, and the `beforefound` / `afterfound` hooks are executed separately for each match.
+
+In `all` mode, providers that return no match or an error do not produce a match hook. The existing `error` hook remains reserved for the case where no configured provider successfully answered at all.
+
+
 The current providers are:
 
 | Provider | Engine key | Configuration |
 |---|---|---|
 | Shazam | `shazam` | Uses ShazamIO |
 | ACRCloud | `acrcloud` | ACRCloud Identify API |
+| AudD | `audd` | AudD music recognition API |
 
 ### Virtual engine configuration
 
@@ -265,6 +280,10 @@ provider = acrcloud
 host = identify-<your-region>.acrcloud.com
 access_key = your-acrcloud-access-key
 access_secret = your-acrcloud-access-secret
+
+[ENGINE audd]
+provider = audd
+api_token = your-audd-api-token
 ```
 
 The engine key is intentionally separate from the provider name. This makes it possible to configure multiple virtual instances of the same provider:
@@ -357,7 +376,8 @@ The standard/common placeholders are:
 | `%artist` | `$SHAZAM_ARTIST` | Artist name |
 | `%record` | `$SHAZAM_RECORD` | Track title |
 | `%id` | `$SHAZAM_ID` | Provider-specific track identifier |
-| `%provider` | `$SHAZAM_PROVIDER` | Recognition provider that produced the match |\n| `%genre` | `$SHAZAM_GENRE` | Primary genre |
+| `%provider` | `$SHAZAM_PROVIDER` | Recognition provider that produced the match |
+| `%genre` | `$SHAZAM_GENRE` | Primary genre |
 | `%confidence` | `$SHAZAM_CONFIDENCE` | Recognition confidence/score when available |
 | `%year` | `$SHAZAM_YEAR` | Release year when available |
 | `%date` | `$SHAZAM_DATE` | Recognition date |
@@ -370,7 +390,7 @@ The standard/common placeholders are:
 | `%error` | `$SHAZAM_ERROR` | Error text for error hooks |
 | `%exit_code` | `$SHAZAM_EXIT_CODE` | CrateDigger exit/error code |
 
-The `%provider` value identifies the actual recognition provider (for example `shazam` or `acrcloud`). The `%id` value is **not necessarily a Shazam ID anymore**. It is the identifier supplied by the recognition engine that produced the match. For example, a Shazam match provides its Shazam track key, while an ACRCloud match provides its ACRID.
+The `%provider` value identifies the actual recognition provider (for example `shazam`, `acrcloud` or `audd`). The `%id` value is **not necessarily a Shazam ID anymore**. It is the identifier supplied by the recognition engine that produced the match. For example, a Shazam match provides its Shazam track key, while an ACRCloud match provides its ACRID and an AudD match provides its `song_id` when available.
 
 In addition to the common variables above, CrateDigger automatically exposes every scalar value found in the provider's returned track dictionary as a `SHAZAM_*` environment variable and therefore as a corresponding lowercase `%placeholder`. Nested dictionaries and arrays are flattened using uppercase underscore-separated names; array indexes are zero-based.
 
@@ -390,7 +410,21 @@ For hooks such as:
 afterfound = shell exec task add "%artist - %record (%year) | (ID: %id) SEARCHDATE: (%date)" +MUSIC
 ```
 
-CrateDigger expands the placeholders before executing the shell command.
+CrateDigger expands the placeholders before executing the shell command. `%provider` expands to the actual provider that produced the match, such as `shazam`, `acrcloud`, or `audd`:
+
+```ini
+afterfound = shell exec printf '%s | %s | provider=%s\\n' "%artist" "%record" "%provider"
+```
+
+The equivalent environment variable is `$SHAZAM_PROVIDER`. This is especially useful with `detection_mode = all`, where the same audio fragment can produce separate matches from multiple providers.
+
+Prefix a placeholder with `U` to uppercase its expanded value. For example, `%Uprovider` becomes `SHAZAM`, `%Uartist` uppercases the artist name, and `%Urecord` uppercases the title:
+
+```ini
+afterfound = shell exec task add "%Uartist - %Urecord | %Uprovider ID: %id" +MUSIC
+```
+
+The normal placeholder remains unchanged: `%provider` returns the provider in its configured lowercase form, while `%Uprovider` returns the same value uppercased.
 
 ### Metadata placeholders
 
@@ -661,6 +695,15 @@ To turn recognition data into CSV, `jq` can produce properly quoted CSV fields:
 ```bash
 jq -r '[.artist,.title,.genre,.id,.date,.url,.youtubeid] | @csv'
 ```
+
+For a practical `afterfound` hook, the same approach can append one CSV row per recognized track and create the header on first use:
+
+```ini
+[HOOKS]
+afterfound = shell exec sh -c 'csv="$HOME/.local/share/cratedigger/tracks.csv"; mkdir -p "$(dirname "$csv")"; if [ ! -f "$csv" ]; then printf "%s\\n" "artist,title,genre,id,date,url,youtubeid,provider" > "$csv"; fi; jq -rn --arg artist "$SHAZAM_ARTIST" --arg title "$SHAZAM_RECORD" --arg genre "$SHAZAM_GENRE" --arg id "$SHAZAM_ID" --arg date "$SHAZAM_DATE" --arg url "$SHAZAM_URL" --arg youtubeid "$YOUTUBE_ID" --arg provider "$SHAZAM_PROVIDER" "[\\$artist,\\$title,\\$genre,\\$id,\\$date,\\$url,\\$youtubeid,\\$provider] | @csv" >> "$csv"'
+```
+
+This appends a single, correctly quoted CSV record for each hook invocation, including the recognition provider. With `detection_mode = all`, each provider match is written as its own row. For a larger or more complex pipeline, point `afterfound` at a small script instead; that keeps quoting and file management easier to maintain.
 
 For example, given a JSON record:
 

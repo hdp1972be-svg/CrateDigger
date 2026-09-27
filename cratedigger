@@ -724,6 +724,13 @@ def voer_hook_uit(
         key=lambda item: len(item[0]),
         reverse=True,
     ):
+        # %U<placeholder> expands the value in uppercase. Use POSIX shell
+        # tools rather than bash-specific parameter expansion, because hooks
+        # run through the user's /bin/sh.
+        command = command.replace(
+            f"%U{placeholder}",
+            f'$(printf "%s" "${variable}" | tr "[:lower:]" "[:upper:]")',
+        )
         command = command.replace(
             f"%{placeholder}",
             f'"${variable}"',
@@ -762,6 +769,7 @@ def voer_afterfound_hook_uit(
     source=None,
     source_type=None,
     profile_name=None,
+    provider=None,
 ):
     """Compatibele wrapper voor de afterfound hook."""
     waarden = hook_waarden(
@@ -770,6 +778,7 @@ def voer_afterfound_hook_uit(
         confidence=confidence,
         source=source,
         source_type=source_type,
+        provider=provider,
     )
     voer_hook_uit(
         "afterfound",
@@ -1111,6 +1120,75 @@ def _acrcloud_multipart(fields, file_field, file_name, file_data):
     return b"".join(delen), f"multipart/form-data; boundary={boundary}"
 
 
+def audd_recognize(engine, temp_pad):
+    """Herken een WAV-fragment via de AudD music recognition API."""
+    api_token = str(engine.get("api_token", "")).strip()
+    if not api_token:
+        raise RuntimeError(
+            "AudD engine is not configured (api_token)."
+        )
+
+    boundary = "----CrateDiggerAudD"
+    with open(temp_pad, "rb") as audio_file:
+        audio_data = audio_file.read()
+
+    delen = [
+        f"--{boundary}\r\n".encode(),
+        b'Content-Disposition: form-data; name="api_token"\r\n\r\n',
+        api_token.encode("utf-8"),
+        b"\r\n",
+        f"--{boundary}\r\n".encode(),
+        f'Content-Disposition: form-data; name="file"; filename="{os.path.basename(temp_pad)}"\r\n'.encode(),
+        b"Content-Type: audio/wav\r\n\r\n",
+        audio_data,
+        b"\r\n",
+        f"--{boundary}--\r\n".encode(),
+    ]
+
+    request = urllib.request.Request(
+        "https://api.audd.io/",
+        data=b"".join(delen),
+        headers={
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "User-Agent": "CrateDigger/1.0",
+        },
+        method="POST",
+    )
+
+    with urllib.request.urlopen(request, timeout=15) as response:
+        resultaat = json.loads(response.read().decode("utf-8"))
+
+    if resultaat.get("status") != "success":
+        fout = resultaat.get("error") or {}
+        if isinstance(fout, dict):
+            fout = fout.get("error_message") or fout.get("error_code") or "recognition failed"
+        raise RuntimeError("AudD: " + str(fout))
+
+    nummer = resultaat.get("result")
+    if not nummer:
+        return {}
+
+    artiest = str(nummer.get("artist") or "")
+    titel = str(nummer.get("title") or "")
+    if not artiest and not titel:
+        return {}
+
+    release_date = str(nummer.get("release_date") or "")
+    jaar_match = re.search(r"\b(19|20)\d{2}\b", release_date)
+
+    return {
+        "track": {
+            "title": titel,
+            "subtitle": artiest,
+            "key": str(nummer.get("song_id") or ""),
+            "genres": {},
+            "album": {"name": str(nummer.get("album") or "")},
+            "releasedate": jaar_match.group(0) if jaar_match else release_date,
+            "sources": {"audd": nummer},
+        }
+    }
+
+
 def acrcloud_recognize(engine, temp_pad):
     """Herken een WAV-fragment via de ACRCloud Identify API."""
     host = str(engine.get("host", "")).strip()
@@ -1231,6 +1309,13 @@ async def herken_met_engine(engine_key, temp_pad):
             temp_pad,
         )
 
+    if provider == "audd":
+        return await asyncio.to_thread(
+            audd_recognize,
+            engine,
+            temp_pad,
+        )
+
     raise RuntimeError(
         f"Engine provider '{provider}' voor '{engine_key}' "
         "wordt nog niet ondersteund."
@@ -1251,9 +1336,15 @@ async def herken_fragment(
     debug=False,
 ):
     temp_pad = None
+    profile_values = laad_profile_waarden(profile_name or "default")
     engine_keys = laad_profile_engines(profile_name or "default")
     if not engine_keys:
         engine_keys = ["shazam"]
+    detection_mode = str(
+        profile_values.get("detection_mode", "firstmatch") or "firstmatch"
+    ).strip().lower()
+    if detection_mode not in ("firstmatch", "all"):
+        raise ValueError("detection_mode moet 'firstmatch' of 'all' zijn.")
 
     try:
         if fragment_pad is not None:
@@ -1298,7 +1389,7 @@ async def herken_fragment(
                 parameters=["-ar", "16000", "-ac", "1"],
             )
 
-        resultaat = {}
+        resultaten = []
         laatste_fout = None
         succesvolle_poging = False
 
@@ -1313,10 +1404,7 @@ async def herken_fragment(
             )
 
             try:
-                resultaat = await herken_met_engine(
-                    engine_key,
-                    temp_pad,
-                )
+                engine_resultaat = await herken_met_engine(engine_key, temp_pad)
                 succesvolle_poging = True
             except asyncio.TimeoutError:
                 laatste_fout = ERROR_NETWORK_TIMEOUT
@@ -1347,34 +1435,26 @@ async def herken_fragment(
                 print(PRINT_UNEXPECTED_ERROR % e)
                 continue
 
-            # A provider may successfully answer while finding no match.
-            # That is a normal miss, so continue with the next configured
-            # engine instead of treating it as an error.
-            if not isinstance(resultaat, dict):
-                resultaat = {}
+            if not isinstance(engine_resultaat, dict):
+                engine_resultaat = {}
 
-            if (
-                "metadata" in resultaat
-                and not "track" in resultaat
-            ):
-                muziek = (
-                    (resultaat.get("metadata") or {}).get("music") or []
-                )
-                resultaat = {"track": muziek[0]} if muziek else {}
+            if "metadata" in engine_resultaat and "track" not in engine_resultaat:
+                muziek = (engine_resultaat.get("metadata") or {}).get("music") or []
+                engine_resultaat = {"track": muziek[0]} if muziek else {}
 
-            if resultaat.get("track"):
-                resultaat["_cratedigger_engine"] = engine_key
-                resultaat["_cratedigger_provider"] = str(
+            if engine_resultaat.get("track"):
+                provider = str(
                     (laad_engine_config(engine_key) or {}).get("provider")
                     or engine_key
                 )
-                break
+                engine_resultaat["_cratedigger_engine"] = engine_key
+                engine_resultaat["_cratedigger_provider"] = provider
+                resultaten.append(engine_resultaat)
 
-            resultaat = {}
+                if detection_mode == "firstmatch":
+                    break
 
-        else:
-            # If at least one engine answered successfully, all engines
-            # simply missed: this is a normal no-match, not an error.
+        if not resultaten:
             if not succesvolle_poging and laatste_fout:
                 voer_hook_uit(
                     "error",
@@ -1388,6 +1468,68 @@ async def herken_fragment(
                     profile_name=profile_name,
                 )
                 return 2
+            resultaat = {}
+        else:
+            resultaat = resultaten[0]
+
+        if detection_mode == "all" and resultaten:
+            for gevonden in resultaten:
+                track = gevonden["track"]
+                provider = gevonden.get("_cratedigger_provider", "")
+                genres = track.get("genres") or {}
+                genre = str(genres.get("primary") or "") if isinstance(genres, dict) else str(genres[0] if genres else "")
+                confidence = haal_confidence(track)
+
+                if json_output:
+                    record = {
+                        "status": "found",
+                        "track": track,
+                        "engine": gevonden.get("_cratedigger_engine", ""),
+                        "provider": provider,
+                        "confidence": confidence,
+                        "source": source or bron_url or "",
+                        "source_type": source_type or ("url" if bron_url else ""),
+                    }
+                    if bron_url:
+                        record["youtube_id"] = youtube_id_uit_url(bron_url)
+                    print(json.dumps(record, indent=2, ensure_ascii=False))
+                else:
+                    print()
+                    print(PRINT_FOUND % gevonden.get("_cratedigger_engine", "unknown"))
+                    print(PRINT_TITLE % track.get("title"))
+                    print(PRINT_ARTIST % track.get("subtitle"))
+                    print(PRINT_GENRE % (genre or "Onbekend"))
+                    if confidence is not None:
+                        print(PRINT_MATCH % confidence)
+                    jaar = _shazam_jaar(track)
+                    if jaar:
+                        print(PRINT_YEAR % jaar)
+                    album = track.get("album")
+                    if isinstance(album, dict) and album.get("name"):
+                        print(PRINT_ALBUM % album.get("name"))
+                    if source:
+                        print(PRINT_SOURCE % source)
+
+                waarden = hook_waarden(
+                    track=track,
+                    bron_url=bron_url,
+                    confidence=confidence,
+                    source=source,
+                    source_type=source_type,
+                    provider=provider,
+                )
+                voer_hook_uit("beforefound", waarden, profile_name=profile_name)
+                voer_afterfound_hook_uit(
+                    track,
+                    bron_url=bron_url,
+                    confidence=confidence,
+                    source=source,
+                    source_type=source_type,
+                    profile_name=profile_name,
+                    provider=provider,
+                )
+
+            return 0
 
         if "track" in resultaat:
 
@@ -1481,6 +1623,7 @@ async def herken_fragment(
                 source=source,
                 source_type=source_type,
                 profile_name=profile_name,
+                provider=resultaat.get("_cratedigger_provider", ""),
             )
 
             return 0
@@ -2064,6 +2207,7 @@ async def watch_modus(pad, recursief, duur, json_output, keep_temp, profile_name
 DEFAULT_PROFILE = {
     "duration": 25,
     "engines": "shazam",
+    "detection_mode": "firstmatch",
     "interval": 5,
     "delay": 0,
     "input": "alsa",
@@ -2134,6 +2278,13 @@ def maak_parser():
         "--live",
         action="store_true",
         help=CLI_HELP_LIVE,
+    )
+
+    parser.add_argument(
+        "--detection-mode",
+        choices=("firstmatch", "all"),
+        default="firstmatch",
+        help="Recognition mode: stop after the first match or query all configured engines",
     )
 
     parser.add_argument(
