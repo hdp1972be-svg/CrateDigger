@@ -1061,9 +1061,9 @@ def download_url_gedeelte(url, starttijd_ms, duur_sec):
 def _acrcloud_signature(access_key, access_secret, timestamp):
     """Maak de ACRCloud v1 identify-signature."""
     string_to_sign = (
-        "POST\\n/v1/identify\\n"
-        f"{access_key}\\n"
-        "audio\\n1\\n"
+        "POST\n/v1/identify\n"
+        f"{access_key}\n"
+        "audio\n1\n"
         f"{timestamp}"
     )
     return base64.b64encode(
@@ -1081,18 +1081,18 @@ def _acrcloud_multipart(fields, file_field, file_name, file_data):
     delen = []
     for naam, waarde in fields.items():
         delen.extend([
-            f"--{boundary}\\r\\n".encode(),
-            f'Content-Disposition: form-data; name="{naam}"\\r\\n\\r\\n'.encode(),
+            f"--{boundary}\r\n".encode(),
+            f'Content-Disposition: form-data; name="{naam}"\r\n\r\n'.encode(),
             str(waarde).encode("utf-8"),
-            b"\\r\\n",
+            b"\r\n",
         ])
     delen.extend([
-        f"--{boundary}\\r\\n".encode(),
-        f'Content-Disposition: form-data; name="{file_field}"; filename="{file_name}"\\r\\n'.encode(),
-        b"Content-Type: audio/wav\\r\\n\\r\\n",
+        f"--{boundary}\r\n".encode(),
+        f'Content-Disposition: form-data; name="{file_field}"; filename="{file_name}"\r\n'.encode(),
+        b"Content-Type: audio/wav\r\n\r\n",
         file_data,
-        b"\\r\\n",
-        f"--{boundary}--\\r\\n".encode(),
+        b"\r\n",
+        f"--{boundary}--\r\n".encode(),
     ])
     return b"".join(delen), f"multipart/form-data; boundary={boundary}"
 
@@ -1159,7 +1159,40 @@ def acrcloud_recognize(engine, temp_pad):
             str(status.get("msg") or "recognition failed")
         )
 
-    return resultaat
+    muziek = (resultaat.get("metadata") or {}).get("music") or []
+    if not muziek:
+        return {}
+
+    nummer = muziek[0]
+    artiesten = nummer.get("artists") or []
+    artiest = (
+        artiesten[0].get("name")
+        if artiesten and isinstance(artiesten[0], dict)
+        else ""
+    )
+    album = nummer.get("album") or {}
+    genres = nummer.get("genres") or []
+    genre = (
+        genres[0].get("name")
+        if genres and isinstance(genres[0], dict)
+        else ""
+    )
+    release_date = str(nummer.get("release_date") or "")
+    jaar_match = re.search(r"\b(19|20)\d{2}\b", release_date)
+
+    return {
+        "track": {
+            "title": str(nummer.get("title") or ""),
+            "subtitle": str(artiest or ""),
+            "key": str(nummer.get("acrid") or ""),
+            "genres": {"primary": str(genre or "")},
+            "album": {"name": str(album.get("name") or "")},
+            "releasedate": jaar_match.group(0) if jaar_match else release_date,
+            "score": nummer.get("score"),
+            "acrid": nummer.get("acrid"),
+            "sources": {"acrcloud": nummer},
+        }
+    }
 
 
 async def herken_met_engine(engine_key, temp_pad):
