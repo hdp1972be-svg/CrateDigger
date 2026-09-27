@@ -1076,7 +1076,7 @@ def _acrcloud_signature(access_key, access_secret, timestamp):
 
 
 def _acrcloud_multipart(fields, file_field, file_name, file_data):
-    """Bouw een kleine multipart/form-data body zonder extra dependency."""
+    """Bouw multipart/form-data zonder extra Python-dependency."""
     boundary = "----CrateDiggerACRCloud"
     delen = []
     for naam, waarde in fields.items():
@@ -1098,33 +1098,40 @@ def _acrcloud_multipart(fields, file_field, file_name, file_data):
 
 
 def acrcloud_recognize(engine, temp_pad):
-    """Herken een WAV-fragment via ACRCloud Identify API."""
+    """Herken een WAV-fragment via de ACRCloud Identify API."""
     host = str(engine.get("host", "")).strip()
     access_key = str(engine.get("access_key", "")).strip()
     access_secret = str(engine.get("access_secret", "")).strip()
 
     if not host or not access_key or not access_secret:
-        raise RuntimeError("ACRCloud engine is not configured (host/access_key/access_secret).")
+        raise RuntimeError(
+            "ACRCloud engine is not configured "
+            "(host/access_key/access_secret)."
+        )
 
     host = host.rstrip("/")
     if not host.startswith(("http://", "https://")):
         host = "https://" + host
 
     timestamp = int(time.time())
-    signature = _acrcloud_signature(access_key, access_secret, timestamp)
     with open(temp_pad, "rb") as audio_file:
         audio_data = audio_file.read()
 
+    fields = {
+        "access_key": access_key,
+        "sample_bytes": len(audio_data),
+        "timestamp": timestamp,
+        "signature": _acrcloud_signature(
+            access_key,
+            access_secret,
+            timestamp,
+        ),
+        "data_type": "audio",
+        "signature_version": "1",
+        "signature_method": "sha1",
+    }
     body, content_type = _acrcloud_multipart(
-        {
-            "access_key": access_key,
-            "sample_bytes": len(audio_data),
-            "timestamp": timestamp,
-            "signature": signature,
-            "data_type": "audio",
-            "signature_version": "1",
-            "signature_method": "sha1",
-        },
+        fields,
         "sample",
         os.path.basename(temp_pad),
         audio_data,
@@ -1139,56 +1146,24 @@ def acrcloud_recognize(engine, temp_pad):
         },
         method="POST",
     )
+
     with urllib.request.urlopen(request, timeout=15) as response:
-        resultaat = json.loads(response.read().decode("utf-8"))
+        resultaat = json.loads(
+            response.read().decode("utf-8")
+        )
 
     status = resultaat.get("status") or {}
     if str(status.get("code")) != "0":
         raise RuntimeError(
-            "ACRCloud: " + str(status.get("msg") or "recognition failed")
+            "ACRCloud: " +
+            str(status.get("msg") or "recognition failed")
         )
 
-    metadata = resultaat.get("metadata") or {}
-    muziek = metadata.get("music") or []
-    if not muziek:
-        return {}
-
-    nummer = muziek[0]
-    artiesten = nummer.get("artists") or []
-    artiest = (
-        artiesten[0].get("name")
-        if artiesten and isinstance(artiesten[0], dict)
-        else ""
-    )
-    album = nummer.get("album") or {}
-    release_date = str(nummer.get("release_date") or "")
-    jaar_match = re.search(r"\\b(19|20)\\d{2}\\b", release_date)
-
-    # Keep the normalized shape close to Shazam's track fields so the
-    # existing presentation/hooks can consume the provider result.
-    return {
-        "title": str(nummer.get("title") or ""),
-        "subtitle": str(artiest or ""),
-        "key": str(nummer.get("acrid") or ""),
-        "genres": {
-            "primary": str(
-                (nummer.get("genres") or [{}])[0].get("name") or ""
-                if isinstance(nummer.get("genres"), list)
-                and nummer.get("genres")
-                and isinstance(nummer.get("genres")[0], dict)
-                else ""
-            )
-        },
-        "album": {"name": str(album.get("name") or "")},
-        "releasedate": jaar_match.group(0) if jaar_match else release_date,
-        "score": nummer.get("score"),
-        "acrid": nummer.get("acrid"),
-        "sources": {"acrcloud": nummer},
-    }
+    return resultaat
 
 
 async def herken_met_engine(engine_key, temp_pad):
-    """Herken een WAV-fragment via de provider achter een virtuele engine-key."""
+    """Herken een WAV-fragment via een virtuele engine-key."""
     engine = laad_engine_config(engine_key) or {
         "name": engine_key,
         "provider": engine_key,
@@ -1199,9 +1174,1167 @@ async def herken_met_engine(engine_key, temp_pad):
         return await Shazam().recognize(temp_pad)
 
     if provider == "acrcloud":
-        return await asyncio.to_thread(acrcloud_recognize, engine, temp_pad)
+        return await asyncio.to_thread(
+            acrcloud_recognize,
+            engine,
+            temp_pad,
+        )
 
     raise RuntimeError(
-        f"Engine provider '{provider}' voor '{engine_key}' wordt nog niet ondersteund."
+        f"Engine provider '{provider}' voor '{engine_key}' "
+        "wordt nog niet ondersteund."
     )
 
+
+async def herken_fragment(
+    mp3_pad,
+    start_tijd,
+    fragment_duur_sec=25,
+    json_output=False,
+    keep_temp=False,
+    fragment_pad=None,
+    bron_url=None,
+    source=None,
+    source_type=None,
+    profile_name=None,
+    debug=False,
+):
+    temp_pad = None
+    engine_keys = laad_profile_engines(profile_name or "default")
+    if not engine_keys:
+        engine_keys = ["shazam"]
+
+    try:
+        if fragment_pad is not None:
+            # Fragment is al uitgesneden (YouTube-pad); bron niet nodig.
+            temp_pad = fragment_pad
+        else:
+            if not os.path.isfile(mp3_pad):
+                raise FileNotFoundError(mp3_pad)
+
+            print(PRINT_LOADING_AUDIO)
+            audio = AudioSegment.from_file(mp3_pad)
+
+            start_ms = zet_tijd_om_naar_ms(start_tijd)
+
+            if start_ms >= len(audio):
+                raise ValueError(
+                    PRINT_START_AFTER_END
+                )
+
+            eind_ms = min(
+                start_ms + fragment_duur_sec * 1000,
+                len(audio),
+            )
+
+            print(
+                PRINT_CUT_FRAGMENT
+            )
+
+            fragment = audio[start_ms:eind_ms]
+
+            with tempfile.NamedTemporaryFile(
+                suffix=".wav",
+                delete=False,
+            ) as tmp:
+                temp_pad = tmp.name
+
+            # WAV i.p.v. mp3: verliesvrij en zonder decoder-ruis; zie
+            # @anchor: audio:wav-normalisatie
+            fragment.export(
+                temp_pad,
+                format="wav",
+                parameters=["-ar", "16000", "-ac", "1"],
+            )
+
+        resultaat = {}
+        laatste_fout = None
+
+        for engine_key in engine_keys:
+            print(kleur(
+                PRINT_QUERY_SHAZAM,
+                Kleuren.CYAN,
+            ))
+
+            try:
+                resultaat = await herken_met_engine(
+                    engine_key,
+                    temp_pad,
+                )
+            except asyncio.TimeoutError:
+                laatste_fout = ERROR_NETWORK_TIMEOUT
+                print(PRINT_TIMEOUT)
+                continue
+            except aiohttp.ClientConnectorError as e:
+                laatste_fout = ERROR_CONNECTION % e.host
+                print(PRINT_CONNECTION_ERROR % e.host)
+                continue
+            except aiohttp.ClientConnectionError:
+                laatste_fout = ERROR_NETWORK_DISCONNECTED
+                print(PRINT_NETWORK_DISCONNECTED)
+                continue
+            except aiohttp.ClientResponseError as e:
+                laatste_fout = ERROR_HTTP % e.status
+                print(PRINT_HTTP_ERROR % e.status)
+                continue
+            except socket.gaierror:
+                laatste_fout = ERROR_DNS
+                print(PRINT_DNS_ERROR)
+                continue
+            except aiohttp.ClientError as e:
+                laatste_fout = ERROR_NETWORK % e
+                print(PRINT_NETWORK_ERROR % e)
+                continue
+            except Exception as e:
+                laatste_fout = str(e)
+                print(PRINT_UNEXPECTED_ERROR % e)
+                continue
+
+            # Shazam returns {"track": ...}; ACRCloud returns its
+            # identification envelope. Normalize the latter here so the
+            # existing output and hooks remain provider-agnostic.
+            if (
+                engine_key
+                and isinstance(resultaat, dict)
+                and "metadata" in resultaat
+            ):
+                muziek = (
+                    (resultaat.get("metadata") or {}).get("music") or []
+                )
+                if muziek:
+                    resultaat = {"track": muziek[0]}
+
+            if isinstance(resultaat, dict) and "track" in resultaat:
+                break
+
+        else:
+            if laatste_fout:
+                voer_hook_uit(
+                    "error",
+                    hook_waarden(
+                        bron_url=bron_url,
+                        source=source,
+                        source_type=source_type,
+                        error=laatste_fout,
+                        exit_code=2,
+                    ),
+                    profile_name=profile_name,
+                )
+                return 2
+
+        if "track" in resultaat:
+
+            track = resultaat["track"]
+            genres = track.get("genres") or {}
+            if isinstance(genres, dict):
+                genre = str(genres.get("primary") or "")
+            else:
+                genre = str(genres[0] if genres else "")
+            confidence = haal_confidence(track)
+
+            if json_output:
+                record = {
+                    "status": "found",
+                    "track": track,
+                    "confidence": confidence,
+                    "source": source or bron_url or "",
+                    "source_type": source_type or ("url" if bron_url else ""),
+                }
+                if bron_url:
+                    record["youtube_id"] = youtube_id_uit_url(bron_url)
+                print(json.dumps(record, indent=2, ensure_ascii=False))
+            else:
+                print()
+                print(PRINT_FOUND)
+                print(PRINT_TITLE % track.get("title"))
+                print(PRINT_ARTIST % track.get("subtitle"))
+                print(PRINT_GENRE % (genre or "Onbekend"))
+                if confidence is not None:
+                    print(PRINT_MATCH % confidence)
+                jaar = _shazam_jaar(track)
+                if jaar:
+                    print(PRINT_YEAR % jaar)
+                if debug:
+                    extra = _shazam_flatten(track)
+                    for naam, waarde in extra.items():
+                        if naam in {
+                            "SHAZAM_ARTIST", "SHAZAM_RECORD", "SHAZAM_GENRE",
+                            "SHAZAM_YEAR"
+                        } or not waarde:
+                            continue
+                        print(PRINT_DEBUG_FIELD % (naam[7:].lower().replace("_", "."), waarde))
+                else:
+                    album = track.get("album")
+                    if isinstance(album, dict) and album.get("name"):
+                        print(PRINT_ALBUM % album.get("name"))
+                    sections = track.get("sections")
+                    if isinstance(sections, list):
+                        for section in sections:
+                            if not isinstance(section, dict):
+                                continue
+                            metadata = section.get("metadata")
+                            if not isinstance(metadata, list):
+                                continue
+                            for item in metadata:
+                                if not isinstance(item, dict):
+                                    continue
+                                titel = str(item.get("title") or "").strip()
+                                tekst = str(item.get("text") or "").strip()
+                                if titel and tekst and titel.lower() in {
+                                    "album", "label", "released"
+                                }:
+                                    print(PRINT_METADATA_FIELD % (titel, tekst))
+                    for veld, label in (
+                        ("isrc", "ISRC"),
+                        ("url", "Shazam"),
+                    ):
+                        waarde = track.get(veld)
+                        if waarde:
+                            print(PRINT_METADATA_FIELD % (label, waarde))
+                if source:
+                    print(PRINT_SOURCE % source)
+
+            waarden = hook_waarden(
+                track=track,
+                bron_url=bron_url,
+                confidence=confidence,
+                source=source,
+                source_type=source_type,
+            )
+            voer_hook_uit(
+                "beforefound",
+                waarden,
+                profile_name=profile_name,
+            )
+            voer_afterfound_hook_uit(
+                track,
+                bron_url=bron_url,
+                confidence=confidence,
+                source=source,
+                source_type=source_type,
+                profile_name=profile_name,
+            )
+
+            return 0
+
+        nomatch_file = bewaar_nomatch_fragment(
+        temp_pad,
+        profile_name=profile_name,
+    )
+
+        if json_output:
+            record = {
+                "status": "no_match",
+                "audio_file": nomatch_file,
+            }
+            print(json.dumps(record, ensure_ascii=False))
+        else:
+            print(PRINT_NO_MATCH)
+            if nomatch_file:
+                print(PRINT_FRAGMENT_SAVED % nomatch_file)
+
+        voer_hook_uit(
+            "nomatch",
+            hook_waarden(
+                bron_url=bron_url,
+                source=source,
+                source_type=source_type,
+                exit_code=1,
+                audio_file=nomatch_file,
+            ),
+            profile_name=profile_name,
+        )
+
+        return 1
+
+    finally:
+        if (
+            temp_pad
+            and temp_pad != fragment_pad
+            and os.path.exists(temp_pad)
+            and not keep_temp
+        ):
+            os.remove(temp_pad)
+        elif temp_pad and keep_temp:
+            print(PRINT_FRAGMENT_SAVED_PLAIN % temp_pad)
+
+
+
+
+class LiveBesturing:
+    """Gedeelde terminalbesturing voor opname én wachttijden."""
+
+    def __init__(self):
+        self.terminal_fd = None
+        self.terminal_file = None
+        self.terminal_settings = None
+        self.input_queue = queue.Queue()
+        self.input_thread = None
+        self.paused = False
+        self.reset_requested = False
+        self.quit_requested = False
+
+    def start(self):
+        if os.name != "posix":
+            return
+
+        try:
+            self.terminal_file = open("/dev/tty", "rb", buffering=0)
+        except OSError:
+            return
+
+        self.terminal_fd = self.terminal_file.fileno()
+        self.terminal_settings = termios.tcgetattr(self.terminal_fd)
+        tty.setcbreak(self.terminal_fd)
+
+        terminal_noecho = termios.tcgetattr(self.terminal_fd)
+        terminal_noecho[3] &= ~termios.ECHO
+        termios.tcsetattr(
+            self.terminal_fd,
+            termios.TCSADRAIN,
+            terminal_noecho,
+        )
+
+        def lees_toetsen():
+            while True:
+                try:
+                    toets = os.read(self.terminal_fd, 1)
+                except OSError:
+                    return
+                if not toets:
+                    return
+                self.input_queue.put(toets.lower())
+
+        self.input_thread = threading.Thread(
+            target=lees_toetsen,
+            name="shazam-input",
+            daemon=True,
+        )
+        self.input_thread.start()
+        # Keep a final safety net for normal interpreter shutdown. The live
+        # loop also calls stop() explicitly, but this covers exits that happen
+        # outside that control flow.
+        atexit.register(self.stop)
+        print(kleur(PRINT_PAUSE_HINT, Kleuren.YELLOW))
+
+    def verwerk_toetsen(self, process=None):
+        while True:
+            try:
+                toets = self.input_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            if toets == b"q":
+                self.quit_requested = True
+                if process is not None and process.poll() is None:
+                    # A paused ffmpeg process is stopped with SIGSTOP. SIGTERM
+                    # becomes pending in that state, so release the process
+                    # first; otherwise quit only takes effect after pressing p.
+                    if self.paused:
+                        process.send_signal(signal.SIGCONT)
+                        self.paused = False
+                    process.send_signal(signal.SIGTERM)
+                print(PRINT_QUIT)
+                continue
+            if toets == b"n":
+                self.reset_requested = True
+                if process is not None and process.poll() is None:
+                    process.send_signal(signal.SIGTERM)
+                print(PRINT_RESET)
+                continue
+
+            if toets != b"p":
+                continue
+
+            if self.paused:
+                if process is not None and process.poll() is None:
+                    process.send_signal(signal.SIGCONT)
+                self.paused = False
+                print(PRINT_CONTINUED)
+            else:
+                if process is not None and process.poll() is None:
+                    process.send_signal(signal.SIGSTOP)
+                self.paused = True
+                print(PRINT_PAUSED)
+
+    def wacht(self, seconden):
+        """Wacht met p-pauze en n-reset. Geeft reset/quit-status terug."""
+        einde = time.monotonic() + seconden
+
+        while True:
+            self.verwerk_toetsen()
+
+            if self.quit_requested:
+                return "quit"
+
+            if self.reset_requested:
+                self.reset_requested = False
+                return "reset"
+
+            if self.paused:
+                time.sleep(0.1)
+                continue
+
+            resterend = einde - time.monotonic()
+            if resterend <= 0:
+                return False
+
+            time.sleep(min(0.1, resterend))
+
+    def stop(self):
+        if self.terminal_fd is None:
+            return
+
+        fd = self.terminal_fd
+
+        try:
+            # Herstel de oorspronkelijke tty-instellingen eerst. Dit moet ook
+            # gebeuren wanneer Ctrl-C midden in een opname/wachttijd komt.
+            if self.terminal_settings is not None:
+                termios.tcsetattr(
+                    fd,
+                    termios.TCSADRAIN,
+                    self.terminal_settings,
+                )
+
+            # Gooi toetsen weg die tijdens het stoppen zijn ingedrukt; anders
+            # kunnen ze in de shell terechtkomen.
+            termios.tcflush(fd, termios.TCIFLUSH)
+        finally:
+            if self.terminal_file is not None:
+                self.terminal_file.close()
+                self.terminal_file = None
+
+            self.terminal_fd = None
+            self.terminal_settings = None
+
+
+def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=None):
+    """
+    Neem live audio op en controleer het PCM-signaal tijdens de opname.
+
+    FFmpeg schrijft raw s16le PCM naar stdout. Daardoor kunnen we meteen
+    bijhouden of er überhaupt een niet-nul sample binnenkomt, zonder het
+    WAV-bestand achteraf opnieuw te moeten lezen.
+
+    Geeft (pad, stil, reset_requested) terug.
+    """
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError(PRINT_FFMPEG_NOT_INSTALLED)
+
+    backends = {
+        "alsa": "alsa",
+        "pulse": "pulse",
+        "jack": "jack",
+    }
+
+    if invoer not in backends:
+        raise ValueError(PRINT_UNKNOWN_LIVE_INPUT % invoer)
+
+    tmp = tempfile.NamedTemporaryFile(
+        suffix=".wav",
+        prefix="shazam-live-",
+        delete=False,    )
+    tmp_pad = tmp.name
+    tmp.close()
+
+    sample_rate = 16000
+    channels = 1
+    sample_width = 2  # s16le
+
+    command = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-f", backends[invoer],
+        "-i", apparaat,
+        "-t", str(duur_sec),
+        "-ar", str(sample_rate),
+        "-ac", str(channels),
+        "-f", "s16le",
+        "-",
+    ]
+
+    print(PRINT_LISTENING % (invoer, duur_sec))
+
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    any_signal = False
+    paused_here = False
+    reset_requested = False
+
+    try:
+        with wave.open(tmp_pad, "wb") as wav:
+            wav.setnchannels(channels)
+            wav.setsampwidth(sample_width)
+            wav.setframerate(sample_rate)
+
+            verwerkte_bytes = 0
+            laatste_meter_update = 0.0
+
+            while True:
+                if besturing is not None:
+                    besturing.verwerk_toetsen(process)
+                    paused_here = besturing.paused
+                    if besturing.reset_requested:
+                        reset_requested = True
+                        besturing.reset_requested = False
+
+                leesbare, _, _ = select.select(
+                    [process.stdout],
+                    [],
+                    [],
+                    0.1,
+                )
+
+                if process.stdout in leesbare and not paused_here:
+                    data = process.stdout.read(4096)
+                    if not data:
+                        break
+
+                    if not any_signal and any(data):
+                        any_signal = True
+
+                    wav.writeframes(data)
+                    verwerkte_bytes += len(data)
+
+                    samples = array.array("h")
+                    samples.frombytes(data)
+                    if samples:
+                        rms = math.sqrt(
+                            sum(sample * sample for sample in samples)
+                            / len(samples)
+                        )
+                        peak = max(abs(sample) for sample in samples)
+                        dbfs = 20 * math.log10(rms / 32768.0) if rms > 0 else -float("inf")
+                        peak_dbfs = 20 * math.log10(peak / 32768.0) if peak > 0 else -float("inf")
+
+                        now = time.monotonic()
+                        if now - laatste_meter_update >= 0.1:
+                            laatste_meter_update = now
+                            meter_db = max(-60.0, min(0.0, dbfs))
+                            meter_breedte = 20
+                            gevuld = int(((meter_db + 60.0) / 60.0) * meter_breedte)
+                            meter = "█" * gevuld + "░" * (meter_breedte - gevuld)
+                            rms_text = f"{dbfs:6.1f} dBFS" if math.isfinite(dbfs) else "  -inf dBFS"
+                            peak_text = f"{peak_dbfs:6.1f}" if math.isfinite(peak_dbfs) else "  -inf"
+                            huidige_sec = min(
+                                duur_sec,
+                                verwerkte_bytes / (sample_rate * channels * sample_width),
+                            )
+                            print(
+                                PRINT_RECORDING_METER % (int(huidige_sec), duur_sec, meter, rms_text, peak_text),
+                                end="",
+                                flush=True,
+                            )
+
+                elif paused_here:                    continue
+
+            print()
+
+        stderr = process.stderr.read().decode(errors="replace").strip()
+        returncode = process.wait()
+
+        if besturing is not None and besturing.quit_requested:
+            return tmp_pad, not any_signal, False, True
+
+        if returncode != 0:
+            raise RuntimeError(
+                PRINT_LIVE_RECORD_ERROR % (invoer, apparaat, stderr or f"ffmpeg fout (exit {returncode})")
+            )
+    except (OSError, wave.Error) as e:
+        if process.poll() is None:
+            process.kill()
+            process.wait()
+        if os.path.exists(tmp_pad):
+            os.remove(tmp_pad)
+        raise RuntimeError(
+            PRINT_LIVE_RECORD_ERROR_PLAIN % (invoer, apparaat)
+        ) from e
+
+    finally:
+        if paused_here and process.poll() is None:
+            process.send_signal(signal.SIGCONT)
+
+    return tmp_pad, not any_signal, reset_requested, besturing.quit_requested if besturing is not None else False
+
+
+async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_temp, debug, invoer, apparaat, profile_name=None):
+    """
+    Neem één of herhaalde live audiofragmenten op en herken ze met Shazam.
+
+    --duration bepaalt hoe lang elke opname duurt.
+    --interval bepaalt hoeveel seconden we wachten na een herkenningspoging
+    voordat de volgende opname start.
+    """
+    besturing = LiveBesturing()
+    besturing.start()
+
+    # Ctrl-C must restore the tty immediately. Depending on where asyncio or
+    # ffmpeg is interrupted, relying only on the outer KeyboardInterrupt
+    # handler can otherwise leave the terminal in cbreak/noecho mode.
+    vorige_sigint = signal.getsignal(signal.SIGINT)
+    vorige_sigterm = signal.getsignal(signal.SIGTERM)
+    vorige_sighup = signal.getsignal(signal.SIGHUP) if hasattr(signal, "SIGHUP") else None
+
+    def herstel_tty_bij_sigint(signum, frame):
+        besturing.stop()
+        raise KeyboardInterrupt
+
+    def herstel_tty_bij_terminate(signum, frame):
+        besturing.stop()
+        raise SystemExit(128 + signum)
+
+    signal.signal(signal.SIGINT, herstel_tty_bij_sigint)
+    signal.signal(signal.SIGTERM, herstel_tty_bij_terminate)
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, herstel_tty_bij_terminate)
+
+    try:
+        while True:
+            fragment_pad = None
+
+            try:
+                fragment_pad, stil, reset_opname, quit_opname = neem_live_audio_op(
+                    duur_sec, invoer, apparaat, besturing
+                )
+
+                if quit_opname:
+                    return 130
+
+                if reset_opname:
+                    continue
+
+                if stil:
+                    print(
+                        "⚠️  Captured audio contains only silence "
+                        "(all samples are zero) — Shazam wordt niet geraadpleegd."
+                    )
+                    opgeslagen_pad = bewaar_nomatch_fragment(
+                        fragment_pad,
+                        profile_name=profile_name,
+                    )
+                    if opgeslagen_pad:
+                        print(PRINT_SILENT_FRAGMENT_SAVED % opgeslagen_pad)
+                        fragment_pad = None
+                    code = 1
+                else:
+                    code = await herken_fragment(
+                        None,
+                        0,
+                        duur_sec,
+                        json_output,
+                        keep_temp,
+                        fragment_pad=fragment_pad,
+                        source_type="live",
+                        source=f"{invoer}:{apparaat}",
+                        profile_name=profile_name,
+                        debug=debug,
+                    )
+
+            except RuntimeError as fout:
+                print(PRINT_ERROR % fout, file=sys.stderr)
+                return 2
+
+            finally:
+                if (
+                    fragment_pad
+                    and os.path.exists(fragment_pad)
+                    and not keep_temp
+                    and not debug
+                ):
+                    os.remove(fragment_pad)
+                elif fragment_pad and (keep_temp or debug):
+                    print(
+                        PRINT_DEBUG_FRAGMENT % fragment_pad
+                        if debug
+                        else PRINT_FRAGMENT_KEPT % fragment_pad
+                    )
+
+            if not loop:
+                return code
+
+            if interval_sec > 0:
+                print(PRINT_NEXT_RECORDING % interval_sec)
+                wacht_resultaat = besturing.wacht(interval_sec)
+                if wacht_resultaat == "quit":
+                    return 130
+                if wacht_resultaat == "reset":
+                    continue
+
+            if code == 0 and delay_sec > 0:
+                print(PRINT_DELAY % delay_sec)
+                wacht_resultaat = besturing.wacht(delay_sec)
+                if wacht_resultaat == "quit":
+                    return 130
+                if wacht_resultaat == "reset":
+                    continue
+    finally:
+        besturing.stop()
+        signal.signal(signal.SIGINT, vorige_sigint)
+        signal.signal(signal.SIGTERM, vorige_sigterm)
+        if hasattr(signal, "SIGHUP"):
+            signal.signal(signal.SIGHUP, vorige_sighup)
+
+
+MEDIA_EXTENSIES = {
+    ".mp3", ".m4a", ".aac", ".wav", ".flac", ".ogg", ".opus",
+    ".webm", ".mp4", ".mkv", ".mov", ".avi", ".m4v", ".wmv",
+}
+
+
+def verzamel_media_bestanden(pad, recursief=False):
+    """Vind ondersteunde lokale mediafiles, gesorteerd voor voorspelbare output."""
+    pad = os.path.abspath(os.path.expanduser(pad))
+
+    if os.path.isfile(pad):
+        return [pad]
+
+    if not os.path.isdir(pad):
+        raise FileNotFoundError(pad)
+
+    if recursief:
+        gevonden = []
+        for root, dirs, bestanden in os.walk(pad):
+            dirs.sort()
+            for naam in sorted(bestanden):
+                bestand = os.path.join(root, naam)
+                if os.path.splitext(naam)[1].lower() in MEDIA_EXTENSIES:
+                    gevonden.append(bestand)
+        return gevonden
+
+    return [
+        os.path.join(pad, naam)
+        for naam in sorted(os.listdir(pad))
+        if os.path.isfile(os.path.join(pad, naam))
+        and os.path.splitext(naam)[1].lower() in MEDIA_EXTENSIES
+    ]
+
+
+async def batch_modus(pad, recursief, starttijd, duur, json_output, keep_temp, profile_name=None):
+    """Herken alle lokale mediafiles in een directory."""
+    bestanden = verzamel_media_bestanden(pad, recursief)
+    if not bestanden:
+        print(PRINT_NO_MEDIA)
+        return 1
+
+    laatste_code = 1
+    totaal = len(bestanden)
+
+    for index, bestand in enumerate(bestanden, 1):
+        print(kleur(PRINT_FILE_PROGRESS % (index, totaal, bestand), Kleuren.BLUE))
+        try:
+            code = await herken_fragment(
+                bestand,
+                starttijd,
+                duur,
+                json_output,
+                keep_temp,
+                source=bestand,
+                source_type="file",
+                profile_name=profile_name,            )
+        except (FileNotFoundError, ValueError) as fout:
+            print(PRINT_ERROR % fout, file=sys.stderr)
+            code = 2
+
+        if code == 0:
+            laatste_code = 0
+
+    return laatste_code
+
+
+async def watch_modus(pad, recursief, duur, json_output, keep_temp, profile_name=None):
+    """Blijf een directory pollen en herken nieuw verschenen lokale mediafiles."""
+    pad = os.path.abspath(os.path.expanduser(pad))
+    if not os.path.isdir(pad):
+        raise FileNotFoundError(pad)
+
+    gezien = set()
+    print(kleur(PRINT_WATCHING % pad, Kleuren.CYAN))
+    print(kleur(PRINT_STOP_HINT, Kleuren.DIM))
+
+    try:
+        while True:
+            bestanden = verzamel_media_bestanden(pad, recursief)
+            for bestand in bestanden:
+                try:
+                    stat = os.stat(bestand)
+                except OSError:
+                    continue
+
+                sleutel = (bestand, stat.st_mtime_ns, stat.st_size)
+                if sleutel in gezien:
+                    continue
+
+                gezien.add(sleutel)
+
+                print(kleur(PRINT_NEW_FILE % bestand, Kleuren.BLUE))
+                try:
+                    await herken_fragment(
+                        bestand,
+                        "0",
+                        duur,
+                        json_output,
+                        keep_temp,
+                        source=bestand,
+                        source_type="file",
+                        profile_name=profile_name,
+                    )
+                except (FileNotFoundError, ValueError) as fout:
+                    print(PRINT_ERROR % fout, file=sys.stderr)
+
+            await asyncio.sleep(1)
+
+    except KeyboardInterrupt:
+        return 130
+
+
+DEFAULT_PROFILE = {
+    "duration": 25,
+    "engines": "shazam",
+    "interval": 5,
+    "delay": 0,
+    "input": "alsa",
+    "device": "default",
+    "loop": False,
+    "json": False,
+    "keep_temp": False,
+    "nomatch_dir": "",
+    "debug": False,
+    "live": False,
+    "recursive": False,
+    "startup": "",
+    "beforefound": "",
+    "afterfound": "",
+    "nomatch": "",
+    "error": "",
+}
+
+
+def laad_profile_waarden(naam):
+    """Laad optionele [PROFILE <naam>] waarden uit .cratediggerrc."""
+    waarden = dict(DEFAULT_PROFILE)
+    config = laad_hooks_config()
+
+    if config is None:
+        return waarden
+
+    sectie = f"PROFILE {naam}"
+    if not config.has_section(sectie):
+        return waarden
+
+    for sleutel in waarden:
+        if not config.has_option(sectie, sleutel):
+            continue
+
+        waarde = config.get(sectie, sleutel).strip()
+        if isinstance(waarden[sleutel], bool):
+            waarden[sleutel] = config.getboolean(sectie, sleutel)
+        elif isinstance(waarden[sleutel], int):
+            waarden[sleutel] = config.getint(sectie, sleutel)
+        else:            waarden[sleutel] = waarde
+
+    return waarden
+
+
+def maak_parser():
+
+    parser = argparse.ArgumentParser(
+        description=CLI_DESCRIPTION
+    )
+
+    parser.add_argument(
+        "--profile",
+        default="default",
+        metavar="NAME",
+        help=CLI_HELP_PROFILE,
+    )
+
+    parser.add_argument(
+        "--list-profiles",
+        action="store_true",
+        help=CLI_HELP_LIST_PROFILES,
+    )
+
+    parser.set_defaults(**DEFAULT_PROFILE)
+
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help=CLI_HELP_LIVE,
+    )
+
+    parser.add_argument(
+        "--interval",
+        type=int,
+        default=5,
+        help=CLI_HELP_INTERVAL,
+    )
+
+    parser.add_argument(
+        "--delay",
+        type=int,
+        default=0,
+        help=CLI_HELP_DELAY,
+    )
+
+    parser.add_argument(
+        "--input",
+        choices=("alsa", "pulse", "jack"),
+        default="alsa",
+        help=CLI_HELP_INPUT,
+    )
+
+    parser.add_argument(
+        "--device",
+        default="default",
+        help=CLI_HELP_DEVICE,
+    )
+
+    parser.add_argument(
+        "--loop",
+        action="store_true",
+        help=CLI_HELP_LOOP,
+    )
+
+    parser.add_argument(
+        "--recursive",
+        action="store_true",
+        help=CLI_HELP_RECURSIVE,
+    )
+
+    parser.add_argument(
+        "--watch",
+        metavar="DIRECTORY",
+        help=CLI_HELP_WATCH,
+    )
+
+    parser.add_argument(
+        "mediafile",
+        nargs="?",
+        help=CLI_HELP_MEDIAFILE,
+    )
+
+    parser.add_argument(
+        "-t",
+        "--time",
+        default=None,
+        help=CLI_HELP_TIME,
+    )
+
+
+    parser.add_argument(
+        "-d",
+        "--duration",
+        type=int,
+        default=25,
+        help=CLI_HELP_DURATION,
+    )
+
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help=CLI_HELP_JSON,
+    )
+
+    parser.add_argument(
+        "--keep-temp",
+        action="store_true",
+        help=CLI_HELP_KEEP_TEMP,
+    )
+
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help=CLI_HELP_DEBUG,
+    )
+
+    return parser
+
+
+async def main():
+    parser = maak_parser()
+    profiel_args, _ = parser.parse_known_args()
+
+    if profiel_args.list_profiles:
+        toon_profiles()
+        raise SystemExit(0)
+
+    profiel_waarden = laad_profile_waarden(profiel_args.profile)
+    parser.set_defaults(**profiel_waarden)
+    args = parser.parse_args()
+
+    effectieve_waarden = {
+        sleutel: getattr(args, sleutel)
+        for sleutel in DEFAULT_PROFILE
+        if hasattr(args, sleutel)
+    }
+    toon_profile_status(args.profile, effectieve_waarden)
+
+    startup_waarden = hook_waarden(
+        source=args.profile,
+        source_type="startup",
+    )
+    startup_waarden["SHAZAM_PROFILE"] = args.profile
+    startup_waarden["SHAZAM_PARENT_PID"] = str(os.getpid())
+    voer_hook_uit(
+        "startup",
+        startup_waarden,
+        profile_name=args.profile,
+    )
+
+    if args.live:
+        if args.interval < 0:
+            print(PRINT_INTERVAL_NEGATIVE, file=sys.stderr)
+            raise SystemExit(2)
+        if args.duration <= 0:
+            print(PRINT_DURATION_INVALID, file=sys.stderr)
+            raise SystemExit(2)
+        if args.delay < 0:
+            print(PRINT_DELAY_NEGATIVE, file=sys.stderr)
+            raise SystemExit(2)
+
+        code = await live_modus(
+            args.duration,
+            args.interval,
+            args.delay,
+            args.loop,
+            args.json,
+            args.keep_temp,
+            args.debug,
+            args.input,
+            args.device,
+            profile_name=args.profile,
+        )
+        raise SystemExit(code)
+
+    if args.watch:
+        if args.duration <= 0:
+            print(PRINT_DURATION_INVALID, file=sys.stderr)
+            raise SystemExit(2)
+        try:
+            code = await watch_modus(
+                args.watch,
+                args.recursive,
+                args.duration,
+                args.json,
+                args.keep_temp,
+                profile_name=args.profile,
+            )
+        except FileNotFoundError:
+            print(PRINT_DIRECTORY_NOT_FOUND % args.watch, file=sys.stderr)
+            raise SystemExit(2)
+        raise SystemExit(code)
+
+    if args.recursive:
+        if not args.mediafile:
+            parser.error(PRINT_RECURSIVE_REQUIRES_DIRECTORY)
+        if is_url(args.mediafile):
+            parser.error(PRINT_RECURSIVE_LOCAL_ONLY)
+        if not os.path.isdir(os.path.expanduser(args.mediafile)):
+            print(PRINT_DIRECTORY_NOT_FOUND % args.mediafile, file=sys.stderr)
+            raise SystemExit(2)
+        starttijd_arg = "0"
+        if args.time is not None:
+            starttijd = parse_youtube_tijd(args.time)
+            if starttijd is None:
+                print(PRINT_INVALID_START_TIME % args.time, file=sys.stderr)
+                raise SystemExit(2)
+            starttijd_arg = args.time
+        code = await batch_modus(
+            args.mediafile,
+            True,
+            starttijd_arg,
+            args.duration,
+            args.json,
+            args.keep_temp,
+            profile_name=args.profile,
+        )
+        raise SystemExit(code)
+
+    bron = args.mediafile
+    if not bron:
+        parser.error(PRINT_MEDIA_REQUIRED)
+    bron_is_url = is_url(bron)
+
+    if bron_is_url:
+        if shutil.which("yt-dlp") is None:
+            print(PRINT_YTDLP_NOT_INSTALLED_SHORT, file=sys.stderr)
+            raise SystemExit(2)
+
+        if args.time is not None:
+            starttijd = parse_youtube_tijd(args.time)
+            if starttijd is None:
+                print(PRINT_INVALID_START_TIME % args.time, file=sys.stderr)
+                raise SystemExit(2)
+        else:
+            try:
+                starttijd = haal_tijd_uit_url(bron)
+            except ValueError as fout:
+                print(PRINT_ERROR % fout, file=sys.stderr)
+                raise SystemExit(2)
+            if starttijd is None:
+                starttijd = 0
+
+        print(PRINT_AUDIO_DOWNLOAD % bron)
+        try:
+            audio_pad, tmpdir = download_url_gedeelte(
+                bron,
+                starttijd,
+                args.duration,
+            )
+        except (RuntimeError, ValueError) as fout:
+            print(PRINT_DOWNLOAD_FAILED % fout, file=sys.stderr)
+            raise SystemExit(2)
+
+        try:
+            code = await herken_fragment(
+                None,
+                0,
+                args.duration,
+                args.json,
+                args.keep_temp,
+                fragment_pad=audio_pad,
+                source=bron,
+                source_type="url",
+                bron_url=bron,
+                profile_name=args.profile,
+            )
+        finally:
+            if args.keep_temp:
+                print(PRINT_AUDIO_SAVED % audio_pad)
+            else:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+        raise SystemExit(code)
+
+    try:
+        code = await herken_fragment(
+            bron,
+            args.time if args.time is not None else "0",
+            args.duration,
+            args.json,
+            args.keep_temp,
+            source=bron,
+            source_type="file",
+            profile_name=args.profile,
+        )
+    except FileNotFoundError:
+        print(PRINT_FILE_NOT_FOUND % bron, file=sys.stderr)
+        raise SystemExit(2)
+    except ValueError as fout:
+        print(PRINT_ERROR % fout, file=sys.stderr)
+        raise SystemExit(2)
+
+    raise SystemExit(code)
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print(PRINT_INTERRUPTED)
+        raise SystemExit(130)
