@@ -93,7 +93,7 @@ ERROR_DNS = "DNS lookup mislukt."
 ERROR_NETWORK = "Netwerkfout: %s"
 
 CLI_DESCRIPTION = "Herken een fragment uit een mediafile met Shazam."
-CLI_HELP_PROFILE = "Gebruik een profiel uit .shazamrc (default: default)"
+CLI_HELP_PROFILE = "Gebruik een profiel uit .cratediggerrc (default: default)"
 CLI_HELP_LIST_PROFILES = "Toon alle profielen en hun effectieve instellingen in tabelvorm"
 CLI_HELP_LIVE = "Luister naar live audio via ALSA in plaats van een bestand/url"
 CLI_HELP_INTERVAL = "Wachttijd in seconden tussen live-opnames (default: 5)"
