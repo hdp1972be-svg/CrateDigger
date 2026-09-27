@@ -25,6 +25,7 @@ import base64
 import hashlib
 import hmac
 import urllib.request
+import io
 from datetime import date
 from urllib.parse import parse_qs, urlsplit
 
@@ -1206,8 +1207,22 @@ def acrcloud_recognize(engine, temp_pad):
         host = "https://" + host
 
     timestamp = int(time.time())
-    with open(temp_pad, "rb") as audio_file:
-        audio_data = audio_file.read()
+
+    # ACRCloud recommends short samples; its own recognizer uses a 12-second
+    # window and its fingerprint tooling works with 16-bit mono 8000 Hz WAV.
+    # Keep Shazam's 16 kHz source untouched and prepare an ACRCloud-specific
+    # sample here. This also keeps the upload small enough to avoid avoidable
+    # write timeouts on slower connections.
+    audio = AudioSegment.from_file(temp_pad)
+    audio = (
+        audio[:12_000]
+        .set_frame_rate(8000)
+        .set_channels(1)
+        .set_sample_width(2)
+    )
+    audio_buffer = io.BytesIO()
+    audio.export(audio_buffer, format="wav")
+    audio_data = audio_buffer.getvalue()
 
     fields = {
         "access_key": access_key,
@@ -1246,6 +1261,11 @@ def acrcloud_recognize(engine, temp_pad):
 
     status = resultaat.get("status") or {}
     status_code = str(status.get("code")) if status.get("code") is not None else ""
+
+    if status_code == "1001":
+        # ACRCloud explicitly defines 1001 as "No recognition result".
+        # This is a normal provider no-match, not an engine error.
+        return {}
 
     if status_code != "0":
         raise RuntimeError(
