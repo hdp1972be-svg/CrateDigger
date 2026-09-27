@@ -762,6 +762,7 @@ def voer_afterfound_hook_uit(
     source=None,
     source_type=None,
     profile_name=None,
+    provider=None,
 ):
     """Compatibele wrapper voor de afterfound hook."""
     waarden = hook_waarden(
@@ -770,6 +771,7 @@ def voer_afterfound_hook_uit(
         confidence=confidence,
         source=source,
         source_type=source_type,
+        provider=provider,
     )
     voer_hook_uit(
         "afterfound",
@@ -1614,6 +1616,7 @@ async def herken_fragment(
                 source=source,
                 source_type=source_type,
                 profile_name=profile_name,
+                provider=resultaat.get("_cratedigger_provider", ""),
             )
 
             return 0
