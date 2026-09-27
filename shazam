@@ -1850,3 +1850,219 @@ def maak_parser():
             "Default: de tijd uit de url, anders 0."
         ),
     )
+
+
+    parser.add_argument(
+        "-d",
+        "--duration",
+        type=int,
+        default=25,
+        help="Fragmentduur in seconden (default: 25)",
+    )
+
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="JSON-output",
+    )
+
+    parser.add_argument(
+        "--keep-temp",
+        action="store_true",
+        help=(
+            "Bewaar tijdelijk fragment "
+            "(bij een url ook het gedownloade audiobestand)."
+        ),
+    )
+
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Bewaar live-opnames in /tmp in plaats van ze na herkenning te verwijderen",
+    )
+
+    return parser
+
+
+async def main():
+    parser = maak_parser()
+    profiel_args, _ = parser.parse_known_args()
+
+    if profiel_args.list_profiles:
+        toon_profiles()
+        raise SystemExit(0)
+
+    profiel_waarden = laad_profile_waarden(profiel_args.profile)
+    parser.set_defaults(**profiel_waarden)
+    args = parser.parse_args()
+
+    effectieve_waarden = {
+        sleutel: getattr(args, sleutel)
+        for sleutel in DEFAULT_PROFILE
+        if hasattr(args, sleutel)
+    }
+    toon_profile_status(args.profile, effectieve_waarden)
+
+    startup_waarden = hook_waarden(
+        source=args.profile,
+        source_type="startup",
+    )
+    startup_waarden["SHAZAM_PROFILE"] = args.profile
+    startup_waarden["SHAZAM_PARENT_PID"] = str(os.getpid())
+    voer_hook_uit(
+        "startup",
+        startup_waarden,
+        profile_name=args.profile,
+    )
+
+    if args.live:
+        if args.interval < 0:
+            print("--interval mag niet negatief zijn.", file=sys.stderr)
+            raise SystemExit(2)
+        if args.duration <= 0:
+            print("--duration moet groter zijn dan 0.", file=sys.stderr)
+            raise SystemExit(2)
+        if args.delay < 0:
+            print("--delay mag niet negatief zijn.", file=sys.stderr)
+            raise SystemExit(2)
+
+        code = await live_modus(
+            args.duration,
+            args.interval,
+            args.delay,
+            args.loop,
+            args.json,
+            args.keep_temp,
+            args.debug,
+            args.input,
+            args.device,
+            profile_name=args.profile,
+        )
+        raise SystemExit(code)
+
+    if args.watch:
+        if args.duration <= 0:
+            print("--duration moet groter zijn dan 0.", file=sys.stderr)
+            raise SystemExit(2)
+        try:
+            code = await watch_modus(
+                args.watch,
+                args.recursive,
+                args.duration,
+                args.json,
+                args.keep_temp,
+                profile_name=args.profile,
+            )
+        except FileNotFoundError:
+            print(f"❌ Directory niet gevonden: {args.watch}", file=sys.stderr)
+            raise SystemExit(2)
+        raise SystemExit(code)
+
+    if args.recursive:
+        if not args.mediafile:
+            parser.error("--recursive vereist een directory")
+        if is_url(args.mediafile):
+            parser.error("--recursive werkt alleen met lokale directories")
+        if not os.path.isdir(os.path.expanduser(args.mediafile)):
+            print(f"❌ Directory niet gevonden: {args.mediafile}", file=sys.stderr)
+            raise SystemExit(2)
+        starttijd_arg = "0"
+        if args.time is not None:
+            starttijd = parse_youtube_tijd(args.time)
+            if starttijd is None:
+                print(f"Ongeldige starttijd: {args.time}", file=sys.stderr)
+                raise SystemExit(2)
+            starttijd_arg = args.time
+        code = await batch_modus(
+            args.mediafile,
+            True,
+            starttijd_arg,
+            args.duration,
+            args.json,
+            args.keep_temp,
+            profile_name=args.profile,
+        )
+        raise SystemExit(code)
+
+    bron = args.mediafile
+    if not bron:
+        parser.error("geef een mediafile/url op, of gebruik --live")
+    bron_is_url = is_url(bron)
+
+    if bron_is_url:
+        if shutil.which("yt-dlp") is None:
+            print("yt-dlp is niet geïnstalleerd.", file=sys.stderr)
+            raise SystemExit(2)
+
+        if args.time is not None:
+            starttijd = parse_youtube_tijd(args.time)
+            if starttijd is None:
+                print(f"Ongeldige starttijd: {args.time}", file=sys.stderr)
+                raise SystemExit(2)
+        else:
+            try:
+                starttijd = haal_tijd_uit_url(bron)
+            except ValueError as fout:
+                print(f"❌ {fout}", file=sys.stderr)
+                raise SystemExit(2)
+            if starttijd is None:
+                starttijd = 0
+
+        print(f"Audio ophalen van {bron}")
+        try:
+            audio_pad, tmpdir = download_url_gedeelte(
+                bron,
+                starttijd,
+                args.duration,
+            )
+        except (RuntimeError, ValueError) as fout:
+            print(f"Ophalen mislukt: {fout}", file=sys.stderr)
+            raise SystemExit(2)
+
+        try:
+            code = await herken_fragment(
+                None,
+                0,
+                args.duration,
+                args.json,
+                args.keep_temp,
+                fragment_pad=audio_pad,
+                source=bron,
+                source_type="url",
+                bron_url=bron,
+                profile_name=args.profile,
+            )
+        finally:
+            if args.keep_temp:
+                print(f"Audio bewaard: {audio_pad}")
+            else:
+                shutil.rmtree(tmpdir, ignore_errors=True)
+        raise SystemExit(code)
+
+    try:
+        code = await herken_fragment(
+            bron,
+            args.time if args.time is not None else "0",
+            args.duration,
+            args.json,
+            args.keep_temp,
+            source=bron,
+            source_type="file",
+            profile_name=args.profile,
+        )
+    except FileNotFoundError:
+        print(f"❌ Bestand niet gevonden: {bron}", file=sys.stderr)
+        raise SystemExit(2)
+    except ValueError as fout:
+        print(f"❌ {fout}", file=sys.stderr)
+        raise SystemExit(2)
+
+    raise SystemExit(code)
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nAfgebroken.")
+        raise SystemExit(130)
