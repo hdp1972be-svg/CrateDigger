@@ -724,6 +724,13 @@ def voer_hook_uit(
         key=lambda item: len(item[0]),
         reverse=True,
     ):
+        # %U<placeholder> expands the value in uppercase. Use POSIX shell
+        # tools rather than bash-specific parameter expansion, because hooks
+        # run through the user's /bin/sh.
+        command = command.replace(
+            f"%U{placeholder}",
+            f'$(printf "%s" "${variable}" | tr "[:lower:]" "[:upper:]")',
+        )
         command = command.replace(
             f"%{placeholder}",
             f'"${variable}"',
