@@ -89,7 +89,7 @@ PRINT_RESET = "\n↻ Reset — nieuwe opname vanaf 0s"
 PRINT_CONTINUED = "\n▶ Continued"
 PRINT_PAUSED = "\n⏸ Paused — press 'p' to continue"
 
-                    print(PRINT_SILENCE)
+PRINT_SILENCE = "⚠️  Captured audio contains only silence (all samples are zero) — Shazam wordt niet geraadpleegd."
 PRINT_DELAY = "Delay na gevonden nummer: %ss..."
 
 PRINT_NO_MEDIA = "Geen ondersteunde mediafiles gevonden."
