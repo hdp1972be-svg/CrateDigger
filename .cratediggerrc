@@ -3,6 +3,21 @@
 # Global hooks can be overridden per profile.
 # startup runs once when CrateDigger starts, before audio capture.
 # No machine-specific paths or secrets are stored here.
+# Recognition engines are virtual keys. A profile selects keys through
+# `engines = ...`; each [ENGINE <key>] maps that key to a provider and
+# contains provider-specific configuration such as API credentials.
+
+[ENGINE shazam]
+provider = shazam
+
+[ENGINE acrcloud]
+# provider = acrcloud
+# access_key = your-acrcloud-access-key
+# access_secret = your-acrcloud-access-secret
+
+[ENGINE audd]
+# provider = audd
+# api_token = your-audd-api-token
 
 [HOOKS]
 
@@ -20,6 +35,7 @@ error = shell exec printf '[CrateDigger] error %s: %s\n' "$SHAZAM_EXIT_CODE" "$S
 
 [PROFILE default]
 
+engines = shazam
 duration = 25
 interval = 5
 delay = 0
@@ -36,6 +52,7 @@ recursive = false
 
 [PROFILE crate]
 
+engines = shazam
 # Recursive local crate-digging.
 duration = 25
 recursive = true
@@ -45,6 +62,7 @@ nomatch_dir = ~/.local/share/cratedigger/nomatch
 
 [PROFILE radio]
 
+engines = shazam
 # PulseAudio system-output capture.
 # Create the sink and mirror the first available Bluetooth monitor into it.
 startup = shell exec bash scripts/setup-radio-audio.sh
@@ -67,6 +85,7 @@ nomatch = shell exec true
 
 [PROFILE json]
 
+engines = shazam
 # Machine-oriented output hook. Full Shazam metadata is available
 # through $SHAZAM_JSON / $SHAZAM_TRACK_JSON as well as flattened variables.
 json = true
