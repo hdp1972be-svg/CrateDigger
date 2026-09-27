@@ -311,7 +311,6 @@ def toon_profile_status(naam, waarden):
     print(kleur(PRINT_PROFILE % naam, Kleuren.CYAN))
     for sleutel, waarde in waarden.items():
         print(f"   {sleutel} = {waarde}")
-    print(f"   engines = {', '.join(laad_profile_engines(naam))}")
 
 
 def toon_profiles():
