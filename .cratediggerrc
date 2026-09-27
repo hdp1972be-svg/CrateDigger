@@ -134,8 +134,7 @@ duration = 25
 
 [PROFILE multi_engine]
 
-# Example with three providers. AudD is currently a configuration example;
-# it becomes usable when its provider implementation is enabled.
+# Example with three providers. The engine chain is tried from left to right.
 engines = shazam, acrcloud, audd
 duration = 25
 
