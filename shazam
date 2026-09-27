@@ -953,10 +953,7 @@ def download_url_gedeelte(url, starttijd_ms, duur_sec):
     # gewenst. Alleen een praktisch leeg bestand is een echte fout.
     if (haal_duur_ms(gevonden[0]) or 0) < 1000:
         shutil.rmtree(tmpmap, ignore_errors=True)
-        raise RuntimeError(
-            PRINT_YTDLP_NO_USABLE_SECTION
-            "(mogelijk voorbij het einde van de video)."
-        )
+        raise RuntimeError(PRINT_YTDLP_NO_USABLE_SECTION)
 
     # Naar WAV zodat de herkenner geen decoder-ruis schreeft; zie
     # @anchor: audio:wav-normalisatie
