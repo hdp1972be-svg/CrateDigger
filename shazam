@@ -103,6 +103,87 @@ PRINT_NEW_FILE = "\n📁 Nieuw bestand: %s"
 PRINT_DEBUG_FRAGMENT = "Debugfragment bewaard: %s"
 PRINT_FRAGMENT_KEPT = "Fragment bewaard: %s"
 
+PRINT_HOOKS_DEFAULTS = "[HOOKS] DEFAULTS"
+PRINT_HOOK_HEADER = "HOOK"
+PRINT_COMMAND_HEADER = "COMMAND"
+PRINT_FEATURE_HEADER = "FEATURE"
+PRINT_HOOK_DEDUPE = "🔗 afterfound hook overgeslagen: hetzelfde nummer als vorige herkenning."
+
+PRINT_INVALID_TIME = "Ongeldige tijd. Gebruik seconden, MM:SS of UU:MM:SS."
+PRINT_INVALID_TIME_URL = "Ongeldige tijd in de url: %s"
+PRINT_START_AFTER_END = "Starttijd ligt voorbij het einde van de file."
+PRINT_CUT_FRAGMENT = "Fragment %s (%ss) uitsnijden..."
+PRINT_YTDLP_NOT_INSTALLED = "yt-dlp is niet geïnstalleerd (nodig voor YouTube-url's)."
+PRINT_AUDIO_DOWNLOAD_RANGE = "Audio ophalen van %.1fs tot %.1fs..."
+PRINT_UNKNOWN_ERROR = "onbekende fout"
+PRINT_YTDLP_DOWNLOAD_ERROR = "yt-dlp kon het gedeelte niet ophalen: %s"
+PRINT_YTDLP_NO_AUDIO = "yt-dlp leverde geen audiobestand op."
+PRINT_YTDLP_NO_USABLE_SECTION = (
+    "yt-dlp leverde geen bruikbaar gedeelte op "
+    "(mogelijk voorbij het einde van de video)."
+)
+PRINT_WAV_CONVERSION_ERROR = "Audio kon niet naar WAV worden omgezet: %s"
+PRINT_FFMPEG_NOT_INSTALLED = "FFmpeg is niet geïnstalleerd (nodig voor live audio)."
+PRINT_UNKNOWN_LIVE_INPUT = "Onbekende live-input: %s"
+PRINT_LIVE_RECORD_ERROR = "%s audio kon niet worden opgenomen van '%s': %s"
+PRINT_LIVE_RECORD_ERROR_PLAIN = "%s audio kon niet worden opgenomen van '%s'."
+PRINT_RECORDING_METER = "\\rRecording sec %2d/%d  [%s] %s  peak %s dBFS"
+PRINT_METADATA_FIELD = "%-8s: %s"
+PRINT_DEBUG_FIELD = "%-12s: %s"
+PRINT_ERROR = "❌ %s"
+PRINT_INTERVAL_NEGATIVE = "--interval mag niet negatief zijn."
+PRINT_DURATION_INVALID = "--duration moet groter zijn dan 0."
+PRINT_DELAY_NEGATIVE = "--delay mag niet negatief zijn."
+PRINT_DIRECTORY_NOT_FOUND = "❌ Directory niet gevonden: %s"
+PRINT_RECURSIVE_REQUIRES_DIRECTORY = "--recursive vereist een directory"
+PRINT_RECURSIVE_LOCAL_ONLY = "--recursive werkt alleen met lokale directories"
+PRINT_INVALID_START_TIME = "Ongeldige starttijd: %s"
+PRINT_MEDIA_REQUIRED = "geef een mediafile/url op, of gebruik --live"
+PRINT_YTDLP_NOT_INSTALLED_SHORT = "yt-dlp is niet geïnstalleerd."
+PRINT_AUDIO_DOWNLOAD = "Audio ophalen van %s"
+PRINT_DOWNLOAD_FAILED = "Ophalen mislukt: %s"
+PRINT_AUDIO_SAVED = "Audio bewaard: %s"
+PRINT_FILE_NOT_FOUND = "❌ Bestand niet gevonden: %s"
+PRINT_INTERRUPTED = "\\nAfgebroken."
+ERROR_NETWORK_TIMEOUT = "Netwerk-timeout tijdens verbinden met Shazam."
+ERROR_CONNECTION = "Kan geen verbinding maken met Shazam (%s)."
+ERROR_NETWORK_DISCONNECTED = "Netwerkverbinding verbroken."
+ERROR_HTTP = "HTTP-fout %s van Shazam."
+ERROR_DNS = "DNS lookup mislukt."
+ERROR_NETWORK = "Netwerkfout: %s"
+
+CLI_DESCRIPTION = "Herken een fragment uit een mediafile met Shazam."
+CLI_HELP_PROFILE = "Gebruik een profiel uit .shazamrc (default: default)"
+CLI_HELP_LIST_PROFILES = "Toon alle profielen en hun effectieve instellingen in tabelvorm"
+CLI_HELP_LIVE = "Luister naar live audio via ALSA in plaats van een bestand/url"
+CLI_HELP_INTERVAL = "Wachttijd in seconden tussen live-opnames (default: 5)"
+CLI_HELP_DELAY = "Wachttijd in seconden na een gevonden nummer (default: 0)"
+CLI_HELP_INPUT = "Live audio backend: alsa, pulse of jack (default: alsa)"
+CLI_HELP_DEVICE = "Input device/source/client (default: default)"
+CLI_HELP_LOOP = "Blijf live audio opnemen en herkennen"
+CLI_HELP_RECURSIVE = "Verwerk alle ondersteunde mediafiles in een directory, inclusief subdirectories"
+CLI_HELP_WATCH = "Blijf een directory bewaken en herken nieuw toegevoegde/gewijzigde mediafiles"
+CLI_HELP_MEDIAFILE = (
+    "Pad naar media-bestand, of een HTTP(S)-url die yt-dlp ondersteunt "
+    "(bv. YouTube, SoundCloud of Bandcamp)."
+)
+CLI_HELP_TIME = (
+    "Starttijd. "
+    "Voorbeelden: "
+    "65 (seconden), "
+    "10:03 (MM:SS), "
+    "1:10:03 (UU:MM:SS). "
+    "Default: de tijd uit de url, anders 0."
+)
+CLI_HELP_DURATION = "Fragmentduur in seconden (default: 25)"
+CLI_HELP_JSON = "JSON-output"
+CLI_HELP_KEEP_TEMP = (
+    "Bewaar tijdelijk fragment "
+    "(bij een url ook het gedownloade audiobestand)."
+)
+CLI_HELP_DEBUG = "Bewaar live-opnames in /tmp in plaats van ze na herkenning te verwijderen"
+
+
 import aiohttp
 import socket
 import asyncio
@@ -183,8 +264,8 @@ def toon_profiles():
         for event in HOOK_EVENTS
     ]
 
-    print("[HOOKS] DEFAULTS")
-    hook_label_width = max(len("HOOK"), *(len(event) for event, _ in hook_defaults))
+    print(PRINT_HOOKS_DEFAULTS)
+    hook_label_width = max(len(PRINT_HOOK_HEADER), *(len(event) for event, _ in hook_defaults))
     hook_value_width = max(
         12,
         min(
@@ -200,7 +281,7 @@ def toon_profiles():
             return [""]
         return [value[i:i + width] for i in range(0, len(value), width)]
 
-    print(f"{'HOOK'.ljust(hook_label_width)} | {'COMMAND'.ljust(hook_value_width)}")
+    print(f"{PRINT_HOOK_HEADER.ljust(hook_label_width)} | {PRINT_COMMAND_HEADER.ljust(hook_value_width)}")
     print(f"{'-' * hook_label_width}-+-{'-' * hook_value_width}")
     for event, command in hook_defaults:
         wrapped = wrap_hook(command, hook_value_width)
@@ -213,7 +294,7 @@ def toon_profiles():
     print()
 
     terminal_width = shutil.get_terminal_size(fallback=(120, 24)).columns
-    feature_width = max(len("FEATURE"), max(len(x) for x in features))
+    feature_width = max(len(PRINT_FEATURE_HEADER), max(len(x) for x in features))
 
     # Split profile columns to fit the current terminal. A long value is
     # wrapped inside its cell rather than expanding the whole table.
@@ -251,7 +332,7 @@ def toon_profiles():
 
         beschikbare = max(20, terminal_width - feature_width - 3)
         kolom_breedte = max(12, beschikbare // len(chunk))
-        headers = ["FEATURE"] + chunk
+        headers = [PRINT_FEATURE_HEADER] + chunk
         widths = [feature_width] + [kolom_breedte] * len(chunk)
 
         def print_row(cells):
@@ -517,7 +598,7 @@ def voer_hook_uit(
         if huidige == _laatste_afterfound:
             print(
                 kleur(
-                    "🔗 afterfound hook overgeslagen: hetzelfde nummer als vorige herkenning.",
+                    PRINT_HOOK_DEDUPE,
                     Kleuren.DIM,
                 )
             )
@@ -617,14 +698,14 @@ def zet_tijd_om_naar_ms(tijd_str):
             seconden = int(tijd_str)
         except ValueError:
             raise ValueError(
-                "Ongeldige tijd. Gebruik seconden, MM:SS of UU:MM:SS."
+                PRINT_INVALID_TIME
             )
 
         # Een negatieve starttijd kan niet: ffmpeg en de pydub-slice zouden
         # het stilzwijgend anders dan bedoeld behandelen.
         if seconden < 0:
             raise ValueError(
-                "Ongeldige tijd. Gebruik seconden, MM:SS of UU:MM:SS."
+                PRINT_INVALID_TIME
             )
 
         return seconden * 1000
@@ -633,7 +714,7 @@ def zet_tijd_om_naar_ms(tijd_str):
         delen = [int(x) for x in tijd_str.split(":")]
     except ValueError:
         raise ValueError(
-            "Ongeldige tijd. Gebruik seconden, MM:SS of UU:MM:SS."
+            PRINT_INVALID_TIME
         )
 
     if len(delen) == 2:
@@ -645,13 +726,13 @@ def zet_tijd_om_naar_ms(tijd_str):
 
     else:
         raise ValueError(
-            "Gebruik seconden, MM:SS of UU:MM:SS."
+            PRINT_INVALID_TIME
         )
     # MM:SS en UU:MM:SS zijn geen vrije som: de kleine componenten moeten binnen
     # hun eigen eenheid blijven, anders zou "1:75" stilletjes 2:15 betekenen.
     if not (0 <= seconden < 60 and 0 <= minuten < 60 and uren >= 0):
         raise ValueError(
-            "Ongeldige tijd. Gebruik seconden, MM:SS of UU:MM:SS."
+            PRINT_INVALID_TIME
         )
 
     return (
@@ -754,7 +835,7 @@ def haal_tijd_uit_url(url):
     # Er staat een tijd in de url die we niet kunnen lezen: niet stilzwijgend
     # vanaf 0 beginnen, want dan herkennen we het verkeerde deel van de video.
     raise ValueError(
-        "Ongeldige tijd in de url: " + ", ".join(kandidaten)
+        PRINT_INVALID_TIME_URL % ", ".join(kandidaten)
     )
 
 
@@ -816,7 +897,7 @@ def download_url_gedeelte(url, starttijd_ms, duur_sec):
     """
     if shutil.which("yt-dlp") is None:
         raise RuntimeError(
-            "yt-dlp is niet geïnstalleerd (nodig voor YouTube-url's)."
+            PRINT_YTDLP_NOT_INSTALLED
         )
 
     tmpmap = tempfile.mkdtemp(prefix="shazam-yt-")
@@ -825,7 +906,7 @@ def download_url_gedeelte(url, starttijd_ms, duur_sec):
     einde_sec = start_sec + duur_sec
 
     print(
-        f"Audio ophalen van {start_sec:.1f}s tot {einde_sec:.1f}s..."
+        PRINT_AUDIO_DOWNLOAD_RANGE % (start_sec, einde_sec)
     )
 
     try:
@@ -856,9 +937,9 @@ def download_url_gedeelte(url, starttijd_ms, duur_sec):
     except subprocess.CalledProcessError as e:
         shutil.rmtree(tmpmap, ignore_errors=True)
         regels = (e.stderr or "").strip().splitlines()
-        fout = regels[-1] if regels else "onbekende fout"
+        fout = regels[-1] if regels else PRINT_UNKNOWN_ERROR
         raise RuntimeError(
-            f"yt-dlp kon het gedeelte niet ophalen: {fout}"
+            PRINT_YTDLP_DOWNLOAD_ERROR % fout
         ) from e
 
     gevonden = sorted(
@@ -869,14 +950,14 @@ def download_url_gedeelte(url, starttijd_ms, duur_sec):
 
     if not gevonden:
         shutil.rmtree(tmpmap, ignore_errors=True)
-        raise RuntimeError("yt-dlp leverde geen audiobestand op.")
+        raise RuntimeError(PRINT_YTDLP_NO_AUDIO)
 
     # Een range die voorbij het einde loopt wordt door yt-dlp ingekort; dat is
     # gewenst. Alleen een praktisch leeg bestand is een echte fout.
     if (haal_duur_ms(gevonden[0]) or 0) < 1000:
         shutil.rmtree(tmpmap, ignore_errors=True)
         raise RuntimeError(
-            "yt-dlp leverde geen bruikbaar gedeelte op "
+            PRINT_YTDLP_NO_USABLE_SECTION
             "(mogelijk voorbij het einde van de video)."
         )
 
@@ -886,7 +967,7 @@ def download_url_gedeelte(url, starttijd_ms, duur_sec):
         wav_pad = zet_om_naar_wav(gevonden[0])
     except Exception as e:
         shutil.rmtree(tmpmap, ignore_errors=True)
-        raise RuntimeError(f"Audio kon niet naar WAV worden omgezet: {e}") from e
+        raise RuntimeError(PRINT_WAV_CONVERSION_ERROR % e) from e
 
     return wav_pad, tmpmap
 
@@ -922,7 +1003,7 @@ async def herken_fragment(
 
             if start_ms >= len(audio):
                 raise ValueError(
-                    "Starttijd ligt voorbij het einde van de file."
+                    PRINT_START_AFTER_END
                 )
 
             eind_ms = min(
@@ -931,7 +1012,7 @@ async def herken_fragment(
             )
 
             print(
-                f"Fragment {start_tijd} ({fragment_duur_sec}s) uitsnijden..."
+                PRINT_CUT_FRAGMENT
             )
 
             fragment = audio[start_ms:eind_ms]
@@ -963,7 +1044,7 @@ async def herken_fragment(
                     bron_url=bron_url,
                     source=source,
                     source_type=source_type,
-                    error="Netwerk-timeout tijdens verbinden met Shazam.",
+                    error=ERROR_NETWORK_TIMEOUT,
                     exit_code=2,
                 ),
                 profile_name=profile_name,
@@ -978,7 +1059,7 @@ async def herken_fragment(
                     bron_url=bron_url,
                     source=source,
                     source_type=source_type,
-                    error=f"Kan geen verbinding maken met Shazam ({e.host}).",
+                    error=ERROR_CONNECTION % e.host,
                     exit_code=2,
                 ),
                 profile_name=profile_name,
@@ -990,7 +1071,7 @@ async def herken_fragment(
             voer_hook_uit(
                 "error",
                 hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
-                             error="Netwerkverbinding verbroken.", exit_code=2),
+                             error=ERROR_NETWORK_DISCONNECTED, exit_code=2),
                 profile_name=profile_name,
             )
             return 2
@@ -1000,7 +1081,7 @@ async def herken_fragment(
             voer_hook_uit(
                 "error",
                 hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
-                             error=f"HTTP-fout {e.status} van Shazam.", exit_code=2),
+                             error=ERROR_HTTP % e.status, exit_code=2),
                 profile_name=profile_name,
             )
             return 2
@@ -1010,7 +1091,7 @@ async def herken_fragment(
             voer_hook_uit(
                 "error",
                 hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
-                             error="DNS lookup mislukt.", exit_code=2),
+                             error=ERROR_DNS, exit_code=2),
                 profile_name=profile_name,
             )
             return 2
@@ -1020,7 +1101,7 @@ async def herken_fragment(
             voer_hook_uit(
                 "error",
                 hook_waarden(bron_url=bron_url, source=source, source_type=source_type,
-                             error=f"Netwerkfout: {e}", exit_code=2),
+                             error=ERROR_NETWORK % e, exit_code=2),
                 profile_name=profile_name,
             )
             return 2
@@ -1075,7 +1156,7 @@ async def herken_fragment(
                             "SHAZAM_YEAR"
                         } or not waarde:
                             continue
-                        print(f"{naam[7:].lower().replace('_', '.'):12}: {waarde}")
+                        print(PRINT_DEBUG_FIELD % (naam[7:].lower().replace("_", "."), waarde))
                 else:
                     album = track.get("album")
                     if isinstance(album, dict) and album.get("name"):
@@ -1096,14 +1177,14 @@ async def herken_fragment(
                                 if titel and tekst and titel.lower() in {
                                     "album", "label", "released"
                                 }:
-                                    print(f"{titel:8}: {tekst}")
+                                    print(PRINT_METADATA_FIELD % (titel, tekst))
                     for veld, label in (
                         ("isrc", "ISRC"),
                         ("url", "Shazam"),
                     ):
                         waarde = track.get(veld)
                         if waarde:
-                            print(f"{label:8}: {waarde}")
+                            print(PRINT_METADATA_FIELD % (label, waarde))
                 if source:
                     print(PRINT_SOURCE % source)
 
@@ -1333,7 +1414,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
     Geeft (pad, stil, reset_requested) terug.
     """
     if shutil.which("ffmpeg") is None:
-        raise RuntimeError("FFmpeg is niet geïnstalleerd (nodig voor live audio).")
+        raise RuntimeError(PRINT_FFMPEG_NOT_INSTALLED)
 
     backends = {
         "alsa": "alsa",
@@ -1342,7 +1423,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
     }
 
     if invoer not in backends:
-        raise ValueError(f"Onbekende live-input: {invoer}")
+        raise ValueError(PRINT_UNKNOWN_LIVE_INPUT % invoer)
 
     tmp = tempfile.NamedTemporaryFile(
         suffix=".wav",
@@ -1440,10 +1521,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
                                 verwerkte_bytes / (sample_rate * channels * sample_width),
                             )
                             print(
-                                f"\rRecording sec {int(huidige_sec):>2}/{duur_sec}  "
-                                f"[{meter}] {rms_text}  peak {peak_text} dBFS",
-                                end="",
-                                flush=True,
+                                print(PRINT_RECORDING_METER % (int(huidige_sec), duur_sec, meter, rms_text, peak_text), end="", flush=True,)
                             )
 
                 elif paused_here:                    continue
@@ -1458,9 +1536,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
 
         if returncode != 0:
             raise RuntimeError(
-                f"{invoer} audio kon niet worden opgenomen van "
-                f"'{apparaat}': {stderr or f'ffmpeg fout (exit {returncode})'}"
-            )
+                raise RuntimeError(PRINT_LIVE_RECORD_ERROR % (invoer, apparaat, stderr or f"ffmpeg fout (exit {returncode})"))
 
     except (OSError, wave.Error) as e:
         if process.poll() is None:
@@ -1469,7 +1545,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
         if os.path.exists(tmp_pad):
             os.remove(tmp_pad)
         raise RuntimeError(
-            f"{invoer} audio kon niet worden opgenomen van '{apparaat}'."
+            raise RuntimeError(PRINT_LIVE_RECORD_ERROR_PLAIN % (invoer, apparaat))
         ) from e
 
     finally:
@@ -1553,7 +1629,7 @@ async def live_modus(duur_sec, interval_sec, delay_sec, loop, json_output, keep_
                     )
 
             except RuntimeError as fout:
-                print("❌ %s" % fout, file=sys.stderr)
+                print(PRINT_ERROR % fout, file=sys.stderr)
                 return 2
 
             finally:
@@ -1654,7 +1730,7 @@ async def batch_modus(pad, recursief, starttijd, duur, json_output, keep_temp, p
                 source_type="file",
                 profile_name=profile_name,            )
         except (FileNotFoundError, ValueError) as fout:
-            print("❌ %s" % fout, file=sys.stderr)
+            print(PRINT_ERROR % fout, file=sys.stderr)
             code = 2
 
         if code == 0:
@@ -1701,7 +1777,7 @@ async def watch_modus(pad, recursief, duur, json_output, keep_temp, profile_name
                         profile_name=profile_name,
                     )
                 except (FileNotFoundError, ValueError) as fout:
-                    print("❌ %s" % fout, file=sys.stderr)
+                    print(PRINT_ERROR % fout, file=sys.stderr)
 
             await asyncio.sleep(1)
 
@@ -1759,20 +1835,20 @@ def laad_profile_waarden(naam):
 def maak_parser():
 
     parser = argparse.ArgumentParser(
-        description="Herken een fragment uit een mediafile met Shazam."
+        description=CLI_DESCRIPTION
     )
 
     parser.add_argument(
         "--profile",
         default="default",
         metavar="NAME",
-        help="Gebruik een profiel uit .shazamrc (default: default)",
+        help=CLI_HELP_PROFILE,
     )
 
     parser.add_argument(
         "--list-profiles",
         action="store_true",
-        help="Toon alle profielen en hun effectieve instellingen in tabelvorm",
+        help=CLI_HELP_LIST_PROFILES,
     )
 
     parser.set_defaults(**DEFAULT_PROFILE)
@@ -1780,75 +1856,65 @@ def maak_parser():
     parser.add_argument(
         "--live",
         action="store_true",
-        help="Luister naar live audio via ALSA in plaats van een bestand/url",
+        help=CLI_HELP_LIVE,
     )
 
     parser.add_argument(
         "--interval",
         type=int,
         default=5,
-        help="Wachttijd in seconden tussen live-opnames (default: 5)",
+        help=CLI_HELP_INTERVAL,
     )
 
     parser.add_argument(
         "--delay",
         type=int,
         default=0,
-        help="Wachttijd in seconden na een gevonden nummer (default: 0)",
+        help=CLI_HELP_DELAY,
     )
 
     parser.add_argument(
         "--input",
         choices=("alsa", "pulse", "jack"),
         default="alsa",
-        help="Live audio backend: alsa, pulse of jack (default: alsa)",
+        help=CLI_HELP_INPUT,
     )
 
     parser.add_argument(
         "--device",
         default="default",
-        help="Input device/source/client (default: default)",
+        help=CLI_HELP_DEVICE,
     )
 
     parser.add_argument(
         "--loop",
         action="store_true",
-        help="Blijf live audio opnemen en herkennen",
+        help=CLI_HELP_LOOP,
     )
 
     parser.add_argument(
         "--recursive",
         action="store_true",
-        help="Verwerk alle ondersteunde mediafiles in een directory, inclusief subdirectories",
+        help=CLI_HELP_RECURSIVE,
     )
 
     parser.add_argument(
         "--watch",
         metavar="DIRECTORY",
-        help="Blijf een directory bewaken en herken nieuw toegevoegde/gewijzigde mediafiles",
+        help=CLI_HELP_WATCH,
     )
 
     parser.add_argument(
         "mediafile",
         nargs="?",
-        help=(
-            "Pad naar media-bestand, of een HTTP(S)-url die yt-dlp ondersteunt "
-            "(bv. YouTube, SoundCloud of Bandcamp)."
-        ),
+        help=CLI_HELP_MEDIAFILE,
     )
 
     parser.add_argument(
         "-t",
         "--time",
         default=None,
-        help=(
-            "Starttijd. "
-            "Voorbeelden: "
-            "65 (seconden), "
-            "10:03 (MM:SS), "
-            "1:10:03 (UU:MM:SS). "
-            "Default: de tijd uit de url, anders 0."
-        ),
+        help=CLI_HELP_TIME,
     )
 
 
@@ -1857,28 +1923,25 @@ def maak_parser():
         "--duration",
         type=int,
         default=25,
-        help="Fragmentduur in seconden (default: 25)",
+        help=CLI_HELP_DURATION,
     )
 
     parser.add_argument(
         "--json",
         action="store_true",
-        help="JSON-output",
+        help=CLI_HELP_JSON,
     )
 
     parser.add_argument(
         "--keep-temp",
         action="store_true",
-        help=(
-            "Bewaar tijdelijk fragment "
-            "(bij een url ook het gedownloade audiobestand)."
-        ),
+        help=CLI_HELP_KEEP_TEMP,
     )
 
     parser.add_argument(
         "--debug",
         action="store_true",
-        help="Bewaar live-opnames in /tmp in plaats van ze na herkenning te verwijderen",
+        help=CLI_HELP_DEBUG,
     )
 
     return parser
@@ -1917,13 +1980,13 @@ async def main():
 
     if args.live:
         if args.interval < 0:
-            print("--interval mag niet negatief zijn.", file=sys.stderr)
+            print(PRINT_INTERVAL_NEGATIVE, file=sys.stderr)
             raise SystemExit(2)
         if args.duration <= 0:
-            print("--duration moet groter zijn dan 0.", file=sys.stderr)
+            print(PRINT_DURATION_INVALID, file=sys.stderr)
             raise SystemExit(2)
         if args.delay < 0:
-            print("--delay mag niet negatief zijn.", file=sys.stderr)
+            print(PRINT_DELAY_NEGATIVE, file=sys.stderr)
             raise SystemExit(2)
 
         code = await live_modus(
@@ -1942,7 +2005,7 @@ async def main():
 
     if args.watch:
         if args.duration <= 0:
-            print("--duration moet groter zijn dan 0.", file=sys.stderr)
+            print(PRINT_DURATION_INVALID, file=sys.stderr)
             raise SystemExit(2)
         try:
             code = await watch_modus(
@@ -1954,23 +2017,23 @@ async def main():
                 profile_name=args.profile,
             )
         except FileNotFoundError:
-            print(f"❌ Directory niet gevonden: {args.watch}", file=sys.stderr)
+            print(PRINT_DIRECTORY_NOT_FOUND % args.watch, file=sys.stderr)
             raise SystemExit(2)
         raise SystemExit(code)
 
     if args.recursive:
         if not args.mediafile:
-            parser.error("--recursive vereist een directory")
+            parser.error(PRINT_RECURSIVE_REQUIRES_DIRECTORY)
         if is_url(args.mediafile):
-            parser.error("--recursive werkt alleen met lokale directories")
+            parser.error(PRINT_RECURSIVE_LOCAL_ONLY)
         if not os.path.isdir(os.path.expanduser(args.mediafile)):
-            print(f"❌ Directory niet gevonden: {args.mediafile}", file=sys.stderr)
+            print(PRINT_DIRECTORY_NOT_FOUND % args.mediafile, file=sys.stderr)
             raise SystemExit(2)
         starttijd_arg = "0"
         if args.time is not None:
             starttijd = parse_youtube_tijd(args.time)
             if starttijd is None:
-                print(f"Ongeldige starttijd: {args.time}", file=sys.stderr)
+                print(PRINT_INVALID_START_TIME % args.time, file=sys.stderr)
                 raise SystemExit(2)
             starttijd_arg = args.time
         code = await batch_modus(
@@ -1986,29 +2049,29 @@ async def main():
 
     bron = args.mediafile
     if not bron:
-        parser.error("geef een mediafile/url op, of gebruik --live")
+        parser.error(PRINT_MEDIA_REQUIRED)
     bron_is_url = is_url(bron)
 
     if bron_is_url:
         if shutil.which("yt-dlp") is None:
-            print("yt-dlp is niet geïnstalleerd.", file=sys.stderr)
+            print(PRINT_YTDLP_NOT_INSTALLED_SHORT, file=sys.stderr)
             raise SystemExit(2)
 
         if args.time is not None:
             starttijd = parse_youtube_tijd(args.time)
             if starttijd is None:
-                print(f"Ongeldige starttijd: {args.time}", file=sys.stderr)
+                print(PRINT_INVALID_START_TIME % args.time, file=sys.stderr)
                 raise SystemExit(2)
         else:
             try:
                 starttijd = haal_tijd_uit_url(bron)
             except ValueError as fout:
-                print(f"❌ {fout}", file=sys.stderr)
+                print(PRINT_ERROR % fout, file=sys.stderr)
                 raise SystemExit(2)
             if starttijd is None:
                 starttijd = 0
 
-        print(f"Audio ophalen van {bron}")
+        print(PRINT_AUDIO_DOWNLOAD % bron)
         try:
             audio_pad, tmpdir = download_url_gedeelte(
                 bron,
@@ -2016,7 +2079,7 @@ async def main():
                 args.duration,
             )
         except (RuntimeError, ValueError) as fout:
-            print(f"Ophalen mislukt: {fout}", file=sys.stderr)
+            print(PRINT_DOWNLOAD_FAILED % fout, file=sys.stderr)
             raise SystemExit(2)
 
         try:
@@ -2034,7 +2097,7 @@ async def main():
             )
         finally:
             if args.keep_temp:
-                print(f"Audio bewaard: {audio_pad}")
+                print(PRINT_AUDIO_SAVED % audio_pad)
             else:
                 shutil.rmtree(tmpdir, ignore_errors=True)
         raise SystemExit(code)
@@ -2051,10 +2114,10 @@ async def main():
             profile_name=args.profile,
         )
     except FileNotFoundError:
-        print(f"❌ Bestand niet gevonden: {bron}", file=sys.stderr)
+        print(PRINT_FILE_NOT_FOUND % bron, file=sys.stderr)
         raise SystemExit(2)
     except ValueError as fout:
-        print(f"❌ {fout}", file=sys.stderr)
+        print(PRINT_ERROR % fout, file=sys.stderr)
         raise SystemExit(2)
 
     raise SystemExit(code)
@@ -2064,5 +2127,5 @@ if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nAfgebroken.")
+        print(PRINT_INTERRUPTED)
         raise SystemExit(130)
