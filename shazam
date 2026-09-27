@@ -89,10 +89,7 @@ PRINT_RESET = "\n↻ Reset — nieuwe opname vanaf 0s"
 PRINT_CONTINUED = "\n▶ Continued"
 PRINT_PAUSED = "\n⏸ Paused — press 'p' to continue"
 
-PRINT_LISTENING = "Luisteren via %s (%ss)..."
-PRINT_SILENCE = "⚠️  Captured audio contains only silence (all samples are zero) — Shazam wordt niet geraadpleegd."
-PRINT_SILENT_FRAGMENT_SAVED = "🎧 Stil fragment bewaard: file://%s"
-PRINT_NEXT_RECORDING = "Volgende opname over %ss..."
+                    print(PRINT_SILENCE)
 PRINT_DELAY = "Delay na gevonden nummer: %ss..."
 
 PRINT_NO_MEDIA = "Geen ondersteunde mediafiles gevonden."
@@ -1521,7 +1518,9 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
                                 verwerkte_bytes / (sample_rate * channels * sample_width),
                             )
                             print(
-                                print(PRINT_RECORDING_METER % (int(huidige_sec), duur_sec, meter, rms_text, peak_text), end="", flush=True,)
+                                PRINT_RECORDING_METER % (int(huidige_sec), duur_sec, meter, rms_text, peak_text),
+                                end="",
+                                flush=True,
                             )
 
                 elif paused_here:                    continue
@@ -1536,8 +1535,8 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
 
         if returncode != 0:
             raise RuntimeError(
-                raise RuntimeError(PRINT_LIVE_RECORD_ERROR % (invoer, apparaat, stderr or f"ffmpeg fout (exit {returncode})"))
-
+                PRINT_LIVE_RECORD_ERROR % (invoer, apparaat, stderr or f"ffmpeg fout (exit {returncode})")
+            )
     except (OSError, wave.Error) as e:
         if process.poll() is None:
             process.kill()
@@ -1545,7 +1544,7 @@ def neem_live_audio_op(duur_sec, invoer="alsa", apparaat="default", besturing=No
         if os.path.exists(tmp_pad):
             os.remove(tmp_pad)
         raise RuntimeError(
-            raise RuntimeError(PRINT_LIVE_RECORD_ERROR_PLAIN % (invoer, apparaat))
+            PRINT_LIVE_RECORD_ERROR_PLAIN % (invoer, apparaat)
         ) from e
 
     finally:
