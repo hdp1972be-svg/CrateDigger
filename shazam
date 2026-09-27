@@ -943,7 +943,8 @@ async def herken_fragment(
                 temp_pad = tmp.name
 
             # WAV i.p.v. mp3: verliesvrij en zonder decoder-ruis; zie
-            # @anchor: audio:wav-normalisatie            fragment.export(
+            # @anchor: audio:wav-normalisatie
+            fragment.export(
                 temp_pad,
                 format="wav",
                 parameters=["-ar", "16000", "-ac", "1"],
