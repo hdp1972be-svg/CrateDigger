@@ -527,7 +527,46 @@ afterfound = shell exec ~/.local/bin/cratedigger-found
 
 The script can then update Taskwarrior, ingest a database, call an API, or perform several actions at once.
 
-For database ingestion, prefer parameterized/prepared statements in your own application code rather than constructing SQL directly from shell-expanded recognition strings. Track titles and artist names are arbitrary external data and can contain characters that are significant to SQL.
+
+#### SQLite
+
+A simple SQLite ingest can be done directly from an `afterfound` hook:
+
+```bash
+sqlite3 music.db \
+  "INSERT INTO tracks (artist,title,shazam_id,found_at) \
+   VALUES ('$SHAZAM_ARTIST','$SHAZAM_RECORD','$SHAZAM_ID','$SHAZAM_DATE');"
+```
+
+For production use, prefer parameterized/prepared statements in your own script rather than constructing SQL directly from shell-expanded recognition strings.
+
+#### PostgreSQL
+
+PostgreSQL works just as naturally:
+
+```bash
+psql music \
+  -c "INSERT INTO tracks (artist,title,shazam_id,found_at) \
+      VALUES ('$SHAZAM_ARTIST','$SHAZAM_RECORD','$SHAZAM_ID','$SHAZAM_DATE');"
+```
+
+#### HTTP endpoint
+
+The same recognition data can be sent to a local or network service:
+
+```bash
+curl -X POST http://localhost:8080/tracks \
+  -d "artist=$SHAZAM_ARTIST&title=$SHAZAM_RECORD&id=$SHAZAM_ID"
+```
+
+For anything more involved, point the hook at your own script:
+
+```ini
+[HOOKS]
+afterfound = shell exec ~/.local/bin/cratedigger-found
+```
+
+The script can then update Taskwarrior, ingest a database, call an API, or perform several actions at once.
 
 ### Profiles
 
