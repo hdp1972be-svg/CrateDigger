@@ -669,7 +669,7 @@ If Bluetooth is unavailable, the automated setup uses `SHAZAM_AUDIO_FALLBACK_SOU
 ./cratedigger --live --input pulse --device shazam_sink.monitor --loop
 ```
 
-## JSON and CSV pipelines
+## JSON pipelines
 
 For automation, JSON output is useful as a stable machine-readable representation of each recognition. A shell pipeline can then transform that JSON with normal Unix tools such as `jq`.
 
@@ -682,36 +682,6 @@ afterfound = shell exec sh -c 'printf "%s\\n" "$(jq -nc --arg artist "$SHAZAM_AR
 
 JSONL is preferable to appending separate JSON objects to one `.json` file because every line remains an independent valid JSON value.
 
-To turn recognition data into CSV, `jq` can produce properly quoted CSV fields:
-
-```bash
-jq -r '[.artist,.title,.genre,.id,.date,.url,.youtubeid] | @csv'
-```
-
-For a practical `afterfound` hook, the same approach can append one CSV row per recognized track and create the header on first use:
-
-```ini
-[HOOKS]
-afterfound = shell exec sh -c 'csv="$HOME/.local/share/cratedigger/tracks.csv"; mkdir -p "$(dirname "$csv")"; if [ ! -f "$csv" ]; then printf "%s\\n" "artist,title,genre,id,date,url,youtubeid,provider" > "$csv"; fi; jq -rn --arg artist "$SHAZAM_ARTIST" --arg title "$SHAZAM_RECORD" --arg genre "$SHAZAM_GENRE" --arg id "$SHAZAM_ID" --arg date "$SHAZAM_DATE" --arg url "$SHAZAM_URL" --arg youtubeid "$YOUTUBE_ID" --arg provider "$SHAZAM_PROVIDER" "[\\$artist,\\$title,\\$genre,\\$id,\\$date,\\$url,\\$youtubeid,\\$provider] | @csv" >> "$csv"'
-```
-
-This appends a single, correctly quoted CSV record for each hook invocation, including the recognition provider. With `detection_mode = all`, each provider match is written as its own row. For a larger or more complex pipeline, point `afterfound` at a small script instead; that keeps quoting and file management easier to maintain.
-
-For example, given a JSON record:
-
-```json
-{
-  "artist": "Example Artist",
-  "title": "Example Song",
-  "genre": "Dance",
-  "id": "123456789",
-  "date": "2026-09-26",
-  "url": "https://example.com/source",
-  "youtubeid": "VIDEO_ID"
-}
-```
-
-the same pattern can be used to build a CSV file, with `@csv` taking care of commas and quoting.
 
 The JSON output from CrateDigger reports the recognition status and preserves the complete Shazam track dictionary:
 
@@ -770,67 +740,7 @@ The process exit status is also useful in scripts:
 
 Live mode temporarily puts the terminal into cbreak/noecho mode so that single-key controls work. CrateDigger saves the original tty settings and restores them when live mode exits, including when `Ctrl-C` interrupts an active recording or wait. This prevents the shell from being left with broken input/echo settings.
 
-### Other examples: SQL, databases, HTTP, or your own script
-
-The hook is intentionally **storage-agnostic**. Taskwarrior is just one possible consumer. Since the hook is a normal shell command, you can feed recognition results into SQLite, PostgreSQL, another CLI database tool, an HTTP endpoint, or a script of your own.
-
-For example, a simple SQLite ingest could look like:
-
-```bash
-sqlite3 music.db \
-  "INSERT INTO tracks (artist,title,shazam_id,found_at) \
-   VALUES ('$SHAZAM_ARTIST','$SHAZAM_RECORD','$SHAZAM_ID','$SHAZAM_DATE');"
-```
-
-PostgreSQL works just as naturally:
-
-```bash
-psql music \
-  -c "INSERT INTO tracks (artist,title,shazam_id,found_at) \
-      VALUES ('$SHAZAM_ARTIST','$SHAZAM_RECORD','$SHAZAM_ID','$SHAZAM_DATE');"
-```
-
-Or send the result to another local or network service:
-
-```bash
-curl -X POST http://localhost:8080/tracks \
-  -d "artist=$SHAZAM_ARTIST&title=$SHAZAM_RECORD&id=$SHAZAM_ID"
-```
-
-For anything more involved, point the hook at your own script:
-
-```ini
-[HOOKS]
-afterfound = shell exec ~/.local/bin/cratedigger-found
-```
-
-A script can then decide whether to update Taskwarrior, ingest SQL, call an API, download media, or do several things at once.
-
-For database ingestion, prefer parameterized/prepared statements in your own application code rather than constructing SQL from shell-expanded recognition strings. Track titles and artist names are arbitrary external data and can contain quotes or other characters that are significant to SQL.
-
-### Source URL and YouTube ID
-
-For URL-based recognition, the hook also exposes:
-
-- `%url` — original source URL
-- `%youtubeid` — extracted YouTube video ID, when applicable
-- `%artist` — recognized artist
-- `%record` — recognized title
-- `%id` — Shazam track key
-- `%date` — current date
-
-For example:
-
-```ini
-[HOOKS]
-afterfound = shell exec task add "%artist %record %id %date" +MUSIC
-```
-
-The values are also exported as environment variables to the shell command.
-
-If the same artist/title/Shazam-ID combination is recognized again during the same running process, the hook is skipped to avoid duplicate actions.
-
-Hook failures do not invalidate an otherwise successful Shazam recognition; a non-zero hook exit status is reported as a warning.
+Hook failures do not invalidate an otherwise successful recognition; a non-zero hook exit status is reported as a warning.
 
 ## JSON output
 
