@@ -54,13 +54,27 @@ Online-source support is provided by **yt-dlp**, so the exact URLs that work dep
 
 Ever found a track in a long DJ mix, livestream, playlist, or random online video, but don't know what it is?
 
-Instead of playing the source and holding your phone up to Shazam:
+Instead of playing the source and holding your phone up to Shazam, CrateDigger lets you identify music directly from the command line:
+
+### Pick a point in a YouTube video
+
+You can use a YouTube URL with its `t=` parameter to start recognition exactly where the music appears:
 
 ```bash
-./cratedigger 'https://www.youtube.com/watch?v=VIDEO_ID' -t 47:23
+./cratedigger 'https://www.youtube.com/watch?v=VIDEO_ID&t=47m23s'
 ```
 
-That's it.
+CrateDigger reads the timestamp from the URL automatically, so you can paste a **“play from here”** YouTube link without having to specify `--time` separately.
+
+### Listen to live audio
+
+For live radio, streams, or whatever is currently playing, use a live profile:
+
+```bash
+./cratedigger --profile radio
+```
+
+A profile can configure the live input, capture duration, recognition interval, and audio device, so the command stays simple while the setup lives in `.cratediggerrc`.
 
 It's particularly handy for DJ mixes, radio mixes, live sets, remix compilations, old recordings, and random online media.
 
