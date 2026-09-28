@@ -1,4 +1,6 @@
-<img src="docs/CrateDiggerLogo-v3.png" alt="CrateDigger logo" width="320">
+<p align="center">
+  <img src="docs/logo-small.png" alt="CrateDigger logo" width="800">
+</p>
 
 # CrateDigger
 
