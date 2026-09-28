@@ -367,39 +367,78 @@ Artist  : Mr Assister
 
 The normalized track result is then passed to the existing hooks, so `afterfound` does not need provider-specific orchestration.
 
-## Recognition metadata and hook variables
+## Hooks
 
-CrateDigger preserves provider metadata in a normalized track result. Shazam results are still exposed in full through the `SHAZAM_*` hook variables described below; provider-specific metadata can also be retained in the normalized result. ShazamIO documents the recognition result as a dictionary and provides serialization for the full track response, including track metadata, artwork and provider links. citeturn0search0turn0search3
+CrateDigger hooks are configured in `.cratediggerrc` under `[HOOKS]`. Hooks are shell commands that let you connect recognition events to your own tools, scripts, databases, queues, or services.
 
-For every scalar value in the returned `track` object, CrateDigger creates a `SHAZAM_*` environment variable by flattening nested dictionaries and arrays.
+The first existing configuration file from these locations is used:
 
-Typical fields include:
+```text
+./.cratediggerrc
+~/.cratediggerrc
+~/.config/cratedigger/cratediggerrc
+~/.config/cratedigger/.cratediggerrc
+```
 
-| Shazam data | Hook variable |
-|---|---|
-| track key | `$SHAZAM_KEY` / `$SHAZAM_ID` |
-| title | `$SHAZAM_TITLE` / `$SHAZAM_RECORD` |
-| artist/subtitle | `$SHAZAM_SUBTITLE` / `$SHAZAM_ARTIST` |
-| artist metadata | `$SHAZAM_ARTISTS_0_*` |
-| artwork | `$SHAZAM_IMAGES_*` |
-| genres | `$SHAZAM_GENRES_PRIMARY` / `$SHAZAM_GENRES_*` |
-| provider/hub data | `$SHAZAM_HUB_*` |
-| sections | `$SHAZAM_SECTIONS_0_*`, `$SHAZAM_SECTIONS_1_*`, ... |
-| raw track response | `$SHAZAM_JSON` / `$SHAZAM_TRACK_JSON` |
+Profile hooks can override the corresponding global `[HOOKS]` value.
 
-The exact set is intentionally **not hard-coded**. New scalar fields returned by Shazam automatically become available as new variables. Arrays use zero-based numeric path components. Nested objects are flattened using uppercase underscore-separated names.
+### Lifecycle
 
-For example, `images.coverarthq` becomes `$SHAZAM_IMAGES_COVERARTHQ`, and `sections[0].type` becomes `$SHAZAM_SECTIONS_0_TYPE`.
+CrateDigger supports five lifecycle events:
 
-Empty/null fields are exported as an empty string. Boolean values become `true` or `false`.
+- `startup` — runs once when CrateDigger starts, before audio/network work. Useful for preparing external resources such as PulseAudio sinks and loopbacks.
+- `beforefound` — runs after an engine identifies a track, immediately before `afterfound`.
+- `afterfound` — runs after a new recognition. Repeated identical matches are suppressed.
+- `nomatch` — runs when the configured engine chain completes without identifying the fragment.
+- `error` — runs for recognition/provider/network errors.
 
-The complete original `track` dictionary is also available as compact JSON in `$SHAZAM_JSON` (with `$SHAZAM_TRACK_JSON` as an alias). This is useful when a hook needs metadata that is nested, array-based, or not convenient to address as an individual shell variable.
+In `detection_mode = all`, `beforefound` and `afterfound` are executed separately for each successful provider match.
 
-### Hook expansion variables
+Example:
 
-Hook commands support `%placeholders` in addition to the corresponding environment variables. Every `SHAZAM_*` value in the hook environment can be referenced by removing the `SHAZAM_` prefix and using lowercase.
+```ini
+[HOOKS]
+startup = shell exec ~/bin/cratedigger-startup
+beforefound = shell exec printf 'candidate: %s\\n' "$SHAZAM_ARTIST - $SHAZAM_RECORD"
+afterfound = shell exec task add "%artist %record %id %date" +MUSIC
+nomatch = shell exec logger -t cratedigger "no match: $SHAZAM_SOURCE"
+error = shell exec logger -t cratedigger "error $SHAZAM_EXIT_CODE: $SHAZAM_ERROR"
+```
 
-The standard/common placeholders are:
+A profile can override individual hooks:
+
+```ini
+[PROFILE radio]
+afterfound = shell exec ~/bin/radio-found.sh
+nomatch = shell exec ~/bin/radio-miss.sh
+```
+
+### Hook variables
+
+CrateDigger exports recognition data to the hook environment. Common variables include:
+
+- `$SHAZAM_ARTIST`
+- `$SHAZAM_RECORD`
+- `$SHAZAM_ID`
+- `$SHAZAM_GENRE`
+- `$SHAZAM_CONFIDENCE`
+- `$SHAZAM_DATE`
+- `$SHAZAM_URL`
+- `$YOUTUBE_ID`
+- `$SHAZAM_SOURCE`
+- `$SHAZAM_SOURCE_TYPE`
+- `$SHAZAM_ERROR` — error text for `error` hooks
+- `$SHAZAM_EXIT_CODE` — relevant exit code for `nomatch`/`error`
+- `$SHAZAM_AUDIO_FILE` — saved WAV path for an unmatched fragment
+- `$SHAZAM_AUDIO_URL` — the same path as a `file://` URL
+
+For every scalar value in the returned `track` object, CrateDigger also creates a `SHAZAM_*` variable by flattening nested dictionaries and arrays. Arrays use zero-based numeric path components; nested objects are flattened using uppercase underscore-separated names.
+
+The complete provider track dictionary is available as compact JSON in `$SHAZAM_JSON`, with `$SHAZAM_TRACK_JSON` as an alias.
+
+### Placeholders
+
+Hook commands support `%placeholders` in addition to environment variables. Every `SHAZAM_*` value can be referenced by removing the `SHAZAM_` prefix and using lowercase.
 
 | Placeholder | Environment variable | Meaning |
 |---|---|---|
@@ -414,17 +453,15 @@ The standard/common placeholders are:
 | `%url` | `$SHAZAM_URL` | Original source URL |
 | `%youtubeid` | `$YOUTUBE_ID` | YouTube video ID when present |
 | `%source` | `$SHAZAM_SOURCE` | Original source/path |
-| `%sourcetype` | `$SHAZAM_SOURCE_TYPE` | Source type |
+| `%sourcetype` | `$SHAZAM_SOURCE_TYPE` | `file`, `url`, or `live` |
 | `%audio_file` | `$SHAZAM_AUDIO_FILE` | Saved audio fragment path |
 | `%audio_url` | `$SHAZAM_AUDIO_URL` | Saved audio fragment as `file://` URL |
 | `%error` | `$SHAZAM_ERROR` | Error text for error hooks |
 | `%exit_code` | `$SHAZAM_EXIT_CODE` | CrateDigger exit/error code |
 
-The `%provider` value identifies the actual recognition provider (for example `shazam`, `acrcloud` or `audd`). The `%id` value is **not necessarily a Shazam ID anymore**. It is the identifier supplied by the recognition engine that produced the match. For example, a Shazam match provides its Shazam track key, while an ACRCloud match provides its ACRID and an AudD match provides its `song_id` when available.
+Prefix a placeholder with `U` to uppercase its expanded value. For example, `%Uprovider` returns `SHAZAM`, while `%Uartist` uppercases the artist name.
 
-In addition to the common variables above, CrateDigger automatically exposes every scalar value found in the provider's returned track dictionary as a `SHAZAM_*` environment variable and therefore as a corresponding lowercase `%placeholder`. Nested dictionaries and arrays are flattened using uppercase underscore-separated names; array indexes are zero-based.
-
-For example:
+Arbitrary nested provider data is available through the same flattening mechanism. For example:
 
 ```text
 images.coverarthq      → $SHAZAM_IMAGES_COVERARTHQ      → %images_coverarthq
@@ -434,178 +471,64 @@ artists[0].name        → $SHAZAM_ARTISTS_0_NAME        → %artists_0_name
 
 The complete provider track dictionary is also available as `$SHAZAM_JSON` / `$SHAZAM_TRACK_JSON`, and therefore as `%json` / `%track_json`.
 
-For hooks such as:
+### Provider metadata
 
-```ini
-afterfound = shell exec task add "%artist - %record (%year) | (ID: %id) SEARCHDATE: (%date)" +MUSIC
-```
+The normalized track result records the provider that produced the match. The `%provider` / `$SHAZAM_PROVIDER` value identifies the actual recognition provider, such as `shazam`, `acrcloud`, `audd`, or `chromaprint`.
 
-CrateDigger expands the placeholders before executing the shell command. `%provider` expands to the actual provider that produced the match, such as `shazam`, `acrcloud`, or `audd`:
+The `%id` / `$SHAZAM_ID` value is provider-specific. For example, a Shazam match provides its Shazam track key, ACRCloud provides its ACRID, and AudD provides its `song_id` when available.
+
+Provider metadata is also retained in the normalized recognition result. The generic hook variables above therefore remain usable as the provider chain evolves without requiring provider-specific hook commands.
+
+For example:
 
 ```ini
 afterfound = shell exec printf '%s | %s | provider=%s\\n' "%artist" "%record" "%provider"
 ```
 
-The equivalent environment variable is `$SHAZAM_PROVIDER`. This is especially useful with `detection_mode = all`, where the same audio fragment can produce separate matches from multiple providers.
+With `detection_mode = all`, the same audio fragment can produce separate hook invocations for multiple providers.
 
-Prefix a placeholder with `U` to uppercase its expanded value. For example, `%Uprovider` becomes `SHAZAM`, `%Uartist` uppercases the artist name, and `%Urecord` uppercases the title:
+### Examples
 
-```ini
-afterfound = shell exec task add "%Uartist - %Urecord | %Uprovider ID: %id" +MUSIC
-```
+#### Taskwarrior MUSIC queue
 
-The normal placeholder remains unchanged: `%provider` returns the provider in its configured lowercase form, while `%Uprovider` returns the same value uppercased.
-
-### Metadata placeholders
-
-Every generated `SHAZAM_*` variable can also be addressed as a hook placeholder by removing the `SHAZAM_` prefix and using lowercase. For example:
-
-`%title` → `$SHAZAM_TITLE`
-
-`%images_coverarthq` → `$SHAZAM_IMAGES_COVERARTHQ`
-
-`%sections_0_type` → `$SHAZAM_SECTIONS_0_TYPE`
-
-The existing friendly placeholders remain available: `%artist`, `%record`, `%id`, `%genre`, `%confidence`, `%date`, `%url`, `%youtubeid`, `%source`, `%sourcetype`, `%error`, and `%exitcode`.
-
-CrateDigger also derives `$SHAZAM_YEAR` when a recognizable four-digit year is present in Shazam release-date/year fields.
-
-A hook can therefore inspect everything without waiting for CrateDigger itself to learn about every new Shazam field:
-
-```ini
-[HOOKS]
-afterfound = shell exec printf '%s | %s | %s | %s\\n' "$SHAZAM_ARTIST" "$SHAZAM_RECORD" "$SHAZAM_YEAR" "$SHAZAM_GENRES_PRIMARY"
-```
-
-For arbitrary nested data, `$SHAZAM_JSON` is the authoritative escape hatch.
-
-## Lifecycle hooks
-
-CrateDigger supports five lifecycle events:
-
-- `startup` — runs once when CrateDigger starts, before audio/network work
-- `beforefound` — runs after an engine identifies a track, immediately before `afterfound`
-- `afterfound` — runs after a new recognition; repeated identical matches are suppressed
-- `nomatch` — runs when the configured engine chain completes without identifying the fragment
-- `error` — runs for recognition/provider/network errors
-
-The `startup` hook is useful for preparing external resources before capture starts, such as PulseAudio sinks and loopbacks. Profile hooks override global `[HOOKS]` values for the same event.
-
-## `afterfound` hooks
-
-Recognized tracks can trigger an optional shell command through a `.cratediggerrc` configuration file.
-
-The first existing configuration file from these locations is used:
-
-```text
-./.cratediggerrc
-~/.cratediggerrc
-~/.config/cratedigger/cratediggerrc
-~/.config/cratedigger/.cratediggerrc
-```
-
-### Example: dump every discovered track into a Taskwarrior MUSIC queue
-
-One deliberately simple way to use CrateDigger is to let the hook turn every newly recognized track into a Taskwarrior task tagged `MUSIC`:
+A simple `afterfound` hook can turn every newly recognized track into a Taskwarrior task:
 
 ```ini
 [HOOKS]
 afterfound = shell exec task add "%artist %record %id %date" +MUSIC
 ```
 
-That's it.
+This keeps recognition and acquisition separate: CrateDigger identifies the track, while Taskwarrior becomes the discovery queue.
 
-For example, a live crate-digging session can produce:
+#### CSV output
 
-```text
-Created task 1253.
-Created task 1254.
-Created task 1255.
-...
-```
-
-and:
-
-```bash
-task +MUSIC
-```
-
-becomes your music-discovery queue.
-
-This keeps the responsibilities nicely separated:
-
-```text
-CrateDigger
-    ↓
-recognize track
-    ↓
-afterfound hook
-    ↓
-Taskwarrior +MUSIC
-    ↓
-your downloader / acquisition script
-    ↓
-actual audio crate
-```
-
-CrateDigger does not need to know how you ultimately acquire or organize the audio. The hook is just the bridge.
-
-That's also a useful example of why `afterfound` is deliberately a shell hook rather than hard-coded Taskwarrior integration: **Unix plumbing stays Unix plumbing.**
-
-The recognition score is also available to hooks when Shazam provides one:
-
-- `%confidence` — recognition score
-- `$SHAZAM_CONFIDENCE` — the same value as an environment variable
-- `%source` / `$SHAZAM_SOURCE` — original source (file path, URL, or live input)
-- `%sourcetype` / `$SHAZAM_SOURCE_TYPE` — `file`, `url`, or `live`
-
-JSON output includes the same value as `confidence` when available.
-
-### Hooks
-
-Hooks are configured in `.cratediggerrc` under `[HOOKS]`. The five lifecycle events are:
-
-- `beforefound` — runs after Shazam has identified a track, immediately before `afterfound`
-- `afterfound` — runs after a new recognition; repeated identical consecutive matches are suppressed
-- `nomatch` — runs when Shazam successfully responds but does not identify the fragment
-- `error` — runs for recognition/network errors
-
-All hooks receive the common environment variables where applicable:
-
-- `$SHAZAM_ARTIST`
-- `$SHAZAM_RECORD`
-- `$SHAZAM_ID`
-- `$SHAZAM_GENRE`
-- `$SHAZAM_CONFIDENCE`
-- `$SHAZAM_DATE`
-- `$SHAZAM_URL`
-- `$YOUTUBE_ID`
-- `$SHAZAM_SOURCE`
-- `$SHAZAM_SOURCE_TYPE`
-- `$SHAZAM_ERROR` — error text for `error`
-- `$SHAZAM_EXIT_CODE` — relevant exit code for `nomatch`/`error`
-- `$SHAZAM_AUDIO_FILE` — saved WAV path for an unmatched fragment
-- `$SHAZAM_AUDIO_URL` — the same path as a `file://` URL
-
-The command may use placeholders such as `%artist`, `%record`, `%confidence`, `%source`, `%sourcetype`, `%error`, and `%exitcode`; they are expanded through the corresponding environment variables.
-
-Example:
+A hook can also append one correctly quoted CSV row per recognized track. This example creates the header on first use and includes the recognition provider:
 
 ```ini
 [HOOKS]
-beforefound = shell exec printf 'candidate: %s\\n' "$SHAZAM_ARTIST - $SHAZAM_RECORD"
-afterfound = shell exec task add "%artist %record %id %date" +MUSIC
-nomatch = shell exec logger -t cratedigger "no match: $SHAZAM_SOURCE"
-error = shell exec logger -t cratedigger "error $SHAZAM_EXIT_CODE: $SHAZAM_ERROR"
+afterfound = shell exec sh -c 'csv="$HOME/.local/share/cratedigger/tracks.csv"; mkdir -p "$(dirname "$csv")"; if [ ! -f "$csv" ]; then printf "%s\\n" "artist,title,genre,id,date,url,youtubeid,provider" > "$csv"; fi; jq -rn --arg artist "$SHAZAM_ARTIST" --arg title "$SHAZAM_RECORD" --arg genre "$SHAZAM_GENRE" --arg id "$SHAZAM_ID" --arg date "$SHAZAM_DATE" --arg url "$SHAZAM_URL" --arg youtubeid "$YOUTUBE_ID" --arg provider "$SHAZAM_PROVIDER" "[\\$artist,\\$title,\\$genre,\\$id,\\$date,\\$url,\\$youtubeid,\\$provider] | @csv" >> "$csv"'
 ```
 
-A profile can override individual hooks. The profile hook takes precedence over the global `[HOOKS]` value:
+The resulting file is:
+
+```text
+artist,title,genre,id,date,url,youtubeid,provider
+Example Artist,Example Song,Dance,123456789,2026-09-26,https://example.com/source,VIDEO_ID,shazam
+```
+
+Using `jq @csv` ensures that commas, quotes, and other CSV-sensitive characters are escaped correctly.
+
+For a larger pipeline, point `afterfound` at your own script instead:
 
 ```ini
-[PROFILE radio]
-afterfound = shell exec ~/bin/radio-found.sh
-nomatch = shell exec ~/bin/radio-miss.sh
+[HOOKS]
+afterfound = shell exec ~/.local/bin/cratedigger-found
 ```
+
+The script can then update Taskwarrior, ingest a database, call an API, or perform several actions at once.
+
+For database ingestion, prefer parameterized/prepared statements in your own application code rather than constructing SQL directly from shell-expanded recognition strings. Track titles and artist names are arbitrary external data and can contain characters that are significant to SQL.
+
 ### Profiles
 
 Profiles can be defined in `.cratediggerrc`. The built-in `default` profile keeps the current command-line defaults, so existing behaviour is unchanged.
