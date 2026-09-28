@@ -50,6 +50,38 @@ Online-source support is provided by **yt-dlp**, so the exact URLs that work dep
 - ⚙️ Virtual engine keys with provider-specific configuration and credentials
 - 🧩 Reuse the same captured audio fragment across all recognition engines in the fallback chain
 
+## Why?
+
+Ever found a track in a long DJ mix, livestream, playlist, or random online video, but don't know what it is?
+
+Instead of playing the source and holding your phone up to Shazam:
+
+```bash
+./cratedigger 'https://www.youtube.com/watch?v=VIDEO_ID' -t 47:23
+```
+
+That's it.
+
+It's particularly handy for DJ mixes, radio mixes, live sets, remix compilations, old recordings, and random online media.
+
+**Basically: Shazam for crate digging — arbitrary points in online media, local files, or whatever is currently playing.**
+
+## How it works
+
+For online media:
+
+```text
+Online URL → yt-dlp → media → FFmpeg/pydub → ShazamIO → track
+```
+
+For live audio:
+
+```text
+ALSA / PulseAudio / JACK → FFmpeg → PCM WAV → ShazamIO → track
+```
+
+The important part is that you don't have to manually download media, cut out a fragment, open a music-recognition service, and feed it the audio. The whole operation is one command.
+
 ## Requirements
 
 - Python 3
@@ -719,38 +751,6 @@ With no match:
 ```json
 {"status":"no_match"}
 ```
-
-## How it works
-
-For online media:
-
-```text
-Online URL → yt-dlp → media → FFmpeg/pydub → ShazamIO → track
-```
-
-For live audio:
-
-```text
-ALSA / PulseAudio / JACK → FFmpeg → PCM WAV → ShazamIO → track
-```
-
-The important part is that you don't have to manually download media, cut out a fragment, open a music-recognition service, and feed it the audio. The whole operation is one command.
-
-## Why?
-
-Ever found a track in a long DJ mix, livestream, playlist, or random online video, but don't know what it is?
-
-Instead of playing the source and holding your phone up to Shazam:
-
-```bash
-./cratedigger 'https://www.youtube.com/watch?v=VIDEO_ID' -t 47:23
-```
-
-That's it.
-
-It's particularly handy for DJ mixes, radio mixes, live sets, remix compilations, old recordings, and random online media.
-
-**Basically: Shazam for crate digging — arbitrary points in online media, local files, or whatever is currently playing.**
 
 ## License
 
