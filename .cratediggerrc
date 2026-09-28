@@ -5,7 +5,7 @@
 # No machine-specific paths or secrets are stored here.
 #
 # Recognition engines are virtual keys. A profile selects keys through
-#   engines = shazam, acrcloud, audd
+#   engines = shazam, acrcloud, audd, chromaprint
 #
 # Each [ENGINE <key>] maps that virtual key to a provider and contains
 # provider-specific configuration such as API credentials.
@@ -50,6 +50,14 @@ provider = shazam
 # provider = audd
 # api_token = your-audd-api-token
 
+
+[ENGINE chromaprint]
+# Chromaprint fingerprinting with the AcoustID lookup service.
+# Requires the 'fpcalc' command from Chromaprint and an AcoustID
+# application API key (client).
+#
+# provider = chromaprint
+# client = your-acoustid-application-api-key
 
 # Example: multiple virtual keys may point to the same provider.
 #
