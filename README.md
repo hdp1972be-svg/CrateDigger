@@ -1,4 +1,4 @@
-![CrateDigger logo](docs/cratedigger-logo.png)
+<img src="docs/CrateDiggerLogo-v3.png" alt="CrateDigger logo" width="320">
 
 # CrateDigger
 
