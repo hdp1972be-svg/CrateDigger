@@ -25,6 +25,7 @@ import base64
 import hashlib
 import hmac
 import urllib.request
+import urllib.parse
 from datetime import date
 from urllib.parse import parse_qs, urlsplit
 
