@@ -25,6 +25,7 @@ import base64
 import hashlib
 import hmac
 import urllib.request
+import urllib.parse
 from datetime import date
 from urllib.parse import parse_qs, urlsplit
 
@@ -1189,6 +1190,101 @@ def audd_recognize(engine, temp_pad):
     }
 
 
+def chromaprint_recognize(engine, temp_pad):
+    """Fingerprint audio with fpcalc and look it up through AcoustID."""
+    client = str(engine.get("client", "")).strip()
+    if not client:
+        raise RuntimeError(
+            "Chromaprint engine is not configured (client)."
+        )
+
+    if shutil.which("fpcalc") is None:
+        raise RuntimeError(
+            "Chromaprint engine requires the 'fpcalc' command "
+            "(Chromaprint)."
+        )
+
+    try:
+        fingerprint_process = subprocess.run(
+            ["fpcalc", "-json", temp_pad],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        fingerprint_data = json.loads(fingerprint_process.stdout)
+    except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as e:
+        raise RuntimeError(f"Chromaprint: fingerprint generation failed: {e}") from e
+
+    fingerprint = str(fingerprint_data.get("fingerprint") or "").strip()
+    duration = int(float(fingerprint_data.get("duration") or 0))
+    if not fingerprint or duration <= 0:
+        return {}
+
+    meta = "recordings+releasegroups+compress+sources+isrcs"
+    query = urllib.parse.urlencode({
+        "client": client,
+        "duration": duration,
+        "fingerprint": fingerprint,
+        "meta": meta,
+        "format": "json",
+    })
+    request = urllib.request.Request(
+        f"https://api.acoustid.org/v2/lookup?{query}",
+        headers={"User-Agent": "CrateDigger/0.5"},
+        method="GET",
+    )
+
+    with urllib.request.urlopen(request, timeout=15) as response:
+        resultaat = json.loads(response.read().decode("utf-8"))
+
+    if resultaat.get("status") != "ok":
+        fout = resultaat.get("error") or {}
+        if isinstance(fout, dict):
+            fout = fout.get("message") or fout.get("code") or "lookup failed"
+        raise RuntimeError("Chromaprint/AcoustID: " + str(fout))
+
+    matches = resultaat.get("results") or []
+    if not matches:
+        return {}
+
+    beste = max(matches, key=lambda item: float(item.get("score") or 0))
+    recordings = beste.get("recordings") or []
+    if not recordings:
+        return {}
+
+    recording = recordings[0]
+    artists = recording.get("artists") or []
+    artist = (
+        artists[0].get("name")
+        if artists and isinstance(artists[0], dict)
+        else ""
+    )
+    releasegroups = recording.get("releasegroups") or []
+    releasegroup = releasegroups[0] if releasegroups else {}
+    sources = recording.get("sources") or []
+
+    return {
+        "track": {
+            "title": str(recording.get("title") or ""),
+            "subtitle": str(artist or ""),
+            "key": str(recording.get("id") or beste.get("id") or ""),
+            "genres": {},
+            "album": {"name": str(releasegroup.get("title") or "")},
+            "releasedate": "",
+            "score": beste.get("score"),
+            "musicbrainz_recording_id": str(recording.get("id") or ""),
+            "acoustid": str(beste.get("id") or ""),
+            "sources": {
+                "chromaprint": {
+                    "acoustid": beste.get("id"),
+                    "recording": recording,
+                    "sources": sources,
+                }
+            },
+        }
+    }
+
+
 def acrcloud_recognize(engine, temp_pad):
     """Herken een WAV-fragment via de ACRCloud Identify API."""
     host = str(engine.get("host", "")).strip()
@@ -1301,6 +1397,13 @@ async def herken_met_engine(engine_key, temp_pad):
 
     if provider == "shazam":
         return await Shazam().recognize(temp_pad)
+
+    if provider == "chromaprint":
+        return await asyncio.to_thread(
+            chromaprint_recognize,
+            engine,
+            temp_pad,
+        )
 
     if provider == "acrcloud":
         return await asyncio.to_thread(

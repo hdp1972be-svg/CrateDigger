@@ -10,6 +10,7 @@ All notable changes to CrateDigger are documented here.
 - Virtual `[ENGINE <key>]` configuration sections.
 - ACRCloud recognition provider support.
 - AudD recognition provider support in the multi-provider dispatcher.
+- Chromaprint/AcoustID recognition provider support using local `fpcalc` fingerprints.
 - Configurable `firstmatch` and `all` detection modes.
 - Multi-provider fallback while reusing the same captured audio fragment.
 - Provider-aware hook variable `%provider` / `$SHAZAM_PROVIDER`.
@@ -46,8 +47,11 @@ Current provider architecture includes:
 - Shazam
 - ACRCloud
 - AudD
+- Chromaprint/AcoustID
 
 The configuration is designed so additional providers can be added without changing the profile model.
+
+- Chromaprint/AcoustID requires an application API key and the `fpcalc` utility; AcoustID is intended for full-file identification rather than short snippets.
 
 ### Notes
 

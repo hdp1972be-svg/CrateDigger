@@ -42,7 +42,7 @@ Online-source support is provided by **yt-dlp**, so the exact URLs that work dep
 - 🎧 Keep unmatched audio fragments in a configurable profile directory (or `/tmp` by default) with a `file://` link and expose the path to `nomatch` hooks
 - 🔌 Automatically rebuild the PulseAudio/Bluetooth loopback after audio-device reconnects
 - 🔄 Fall back to the default/available PulseAudio monitor when Bluetooth is unavailable
-- 🔌 Multiple recognition providers with ordered fallback (Shazam, ACRCloud and AudD)
+- 🔌 Multiple recognition providers with ordered fallback (Shazam, ACRCloud, AudD and Chromaprint/AcoustID)
 - ⚙️ Virtual engine keys with provider-specific configuration and credentials
 - 🧩 Reuse the same captured audio fragment across all recognition engines in the fallback chain
 
@@ -266,6 +266,7 @@ The current providers are:
 | Shazam | `shazam` | Uses ShazamIO |
 | ACRCloud | `acrcloud` | ACRCloud Identify API |
 | AudD | `audd` | AudD music recognition API |
+| Chromaprint/AcoustID | `chromaprint` | Local Chromaprint fingerprint + AcoustID lookup |
 
 ### Virtual engine configuration
 
@@ -284,6 +285,10 @@ access_secret = your-acrcloud-access-secret
 [ENGINE audd]
 provider = audd
 api_token = your-audd-api-token
+
+[ENGINE chromaprint]
+provider = chromaprint
+client = your-acoustid-application-api-key
 ```
 
 The engine key is intentionally separate from the provider name. This makes it possible to configure multiple virtual instances of the same provider:
@@ -300,6 +305,27 @@ engines = shazam, acrcloud_radio
 ```
 
 Keep real API credentials out of a public repository.
+
+### Chromaprint / AcoustID
+
+The `chromaprint` provider generates an audio fingerprint locally with the `fpcalc` utility and sends that fingerprint to the AcoustID lookup service. AcoustID requires an application API key in the `client` parameter; register an application rather than putting a temporary example key into the configuration. citeturn0search0
+
+Install Chromaprint so `fpcalc` is available in `$PATH`. The Chromaprint project recommends `fpcalc` when an application only needs to generate fingerprints for AcoustID. citeturn0search1
+
+**Important limitation:** AcoustID is designed for identifying full audio files and explicitly does not currently support short audio snippets as its primary use case. CrateDigger normally sends short fragments, so `chromaprint` is best treated as an optional provider for sufficiently long/full-file input rather than a drop-in replacement for Shazam, ACRCloud or AudD. citeturn0search4
+
+Example:
+
+```ini
+[ENGINE chromaprint]
+provider = chromaprint
+client = your-acoustid-application-api-key
+
+[PROFILE acoustid]
+engines = chromaprint
+```
+
+AcoustID's web service is free for non-commercial applications and is rate-limited; its current guidance says not to exceed 3 requests per second. citeturn0search0turn0search2
 
 ### Fallback semantics
 
