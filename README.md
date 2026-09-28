@@ -1,3 +1,5 @@
+![CrateDigger logo](docs/cratedigger-logo.png)
+
 # CrateDigger
 
 Identify music from online media, live audio, or local media from a short audio segment — directly from the command line.
