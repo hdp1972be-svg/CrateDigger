@@ -568,6 +568,30 @@ afterfound = shell exec ~/.local/bin/cratedigger-found
 
 The script can then update Taskwarrior, ingest a database, call an API, or perform several actions at once.
 
+#### JSON and CSV pipelines
+
+For automation, JSON output is useful as a stable machine-readable representation of each recognition. A shell pipeline can transform recognition data with normal Unix tools such as `jq`.
+
+For example, keep a JSONL history of recognized tracks:
+
+```ini
+[HOOKS]
+afterfound = shell exec sh -c 'printf "%s\\n" "$(jq -nc --arg artist "$SHAZAM_ARTIST" --arg title "$SHAZAM_RECORD" --arg genre "$SHAZAM_GENRE" --arg id "$SHAZAM_ID" --arg date "$SHAZAM_DATE" --arg url "$SHAZAM_URL" --arg youtubeid "$YOUTUBE_ID" --arg source "$SHAZAM_SOURCE" --arg sourcetype "$SHAZAM_SOURCE_TYPE" '''{artist:$artist,title:$title,genre:$genre,id:$id,date:$date,url:$url,youtubeid:$youtubeid,source:$source,source_type:$sourcetype}''')" >> ~/.local/share/cratedigger.jsonl'
+```
+
+JSONL is preferable to appending separate JSON objects to one `.json` file because every line remains an independent valid JSON value.
+
+To turn recognition data into CSV, `jq` can produce properly quoted CSV fields:
+
+```bash
+jq -r '[.artist,.title,.genre,.id,.date,.url,.youtubeid] | @csv'
+```
+
+The practical `afterfound` CSV hook above already demonstrates how to append one correctly quoted row per recognition and create the header on first use. With `detection_mode = all`, each provider match is written as its own row.
+
+For a larger or more complex pipeline, point `afterfound` at a small script instead; that keeps quoting and file management easier to maintain.
+
+
 ### Profiles
 
 Profiles can be defined in `.cratediggerrc`. The built-in `default` profile keeps the current command-line defaults, so existing behaviour is unchanged.
@@ -668,79 +692,6 @@ If Bluetooth is unavailable, the automated setup uses `SHAZAM_AUDIO_FALLBACK_SOU
 ```bash
 ./cratedigger --live --input pulse --device shazam_sink.monitor --loop
 ```
-
-## JSON pipelines
-
-For automation, JSON output is useful as a stable machine-readable representation of each recognition. A shell pipeline can then transform that JSON with normal Unix tools such as `jq`.
-
-For example, keep a JSONL history of recognized tracks:
-
-```ini
-[HOOKS]
-afterfound = shell exec sh -c 'printf "%s\\n" "$(jq -nc --arg artist "$SHAZAM_ARTIST" --arg title "$SHAZAM_RECORD" --arg genre "$SHAZAM_GENRE" --arg id "$SHAZAM_ID" --arg date "$SHAZAM_DATE" --arg url "$SHAZAM_URL" --arg youtubeid "$YOUTUBE_ID" --arg source "$SHAZAM_SOURCE" --arg sourcetype "$SHAZAM_SOURCE_TYPE" '''{artist:$artist,title:$title,genre:$genre,id:$id,date:$date,url:$url,youtubeid:$youtubeid,source:$source,source_type:$sourcetype}''')" >> ~/.local/share/cratedigger.jsonl'
-```
-
-JSONL is preferable to appending separate JSON objects to one `.json` file because every line remains an independent valid JSON value.
-
-
-The JSON output from CrateDigger reports the recognition status and preserves the complete Shazam track dictionary:
-
-```json
-{
-  "status": "found",
-  "track": {
-    "title": "Example Song",
-    "subtitle": "Example Artist"
-  },
-  "confidence": 0.94,
-  "source": "https://example.com/source",
-  "source_type": "url"
-}
-```
-
-The `track` object contains the full Shazam response rather than only the fields shown in this abbreviated example.
-
-When Shazam responds successfully but does not identify the fragment, CrateDigger keeps the captured fragment as a WAV file instead of deleting it. By default it goes to `/tmp`; a profile can set `nomatch_dir` to a persistent directory. The directory is created automatically when it does not exist. Human-readable output includes a `file://` link, and the `nomatch` hook receives `$SHAZAM_AUDIO_FILE` and `$SHAZAM_AUDIO_URL`:
-
-```text
-❌ Geen herkenning.
-🎧 Fragment bewaard: file:///tmp/cratedigger-nomatch-abc123.wav
-```
-
-JSON output includes the saved path too:
-
-```json
-{
-  "status": "no_match",
-  "audio_file": "/tmp/cratedigger-nomatch-abc123.wav"
-}
-```
-
-A saved unmatched fragment is deliberately separate from `--keep-temp`: only no-match fragments are retained automatically, while normal recognized fragments continue to be cleaned up.
-
-For example:
-
-```ini
-[PROFILE crate]
-nomatch_dir = ~/.local/share/cratedigger/nomatch
-```
-
-`~` is expanded, and the directory is created with `mkdir -p`-style semantics when the first unmatched fragment is saved. Leave `nomatch_dir` empty to retain the previous `/tmp` behaviour.
-
-The process exit status is also useful in scripts:
-
-```text
-0   track found
-1   no match
-2   network / operational error
-130 user abort (Ctrl-C or q)
-```
-
-### Terminal cleanup
-
-Live mode temporarily puts the terminal into cbreak/noecho mode so that single-key controls work. CrateDigger saves the original tty settings and restores them when live mode exits, including when `Ctrl-C` interrupts an active recording or wait. This prevents the shell from being left with broken input/echo settings.
-
-Hook failures do not invalidate an otherwise successful recognition; a non-zero hook exit status is reported as a warning.
 
 ## JSON output
 
